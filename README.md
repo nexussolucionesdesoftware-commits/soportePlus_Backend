@@ -24,10 +24,10 @@ Sistema de gestión de tickets de soporte técnico desarrollado con Flask y cone
 ## 📊 Estructura de la Base de Datos
 
 ### Base de Datos Remota
-- **Servidor**: Linux 173.214.172.154
+- **Servidor**: Linux
 - **Base de datos**: `soporteplus`
-- **Usuario**: `wbarrios`
-- **Conexión**: `mysql+pymysql://wbarrios:Coconut%202112.@173.214.172.154/soporteplus`
+- **Usuario**: `#user`
+- **Conexión**: `#root`
 
 ### Tablas del Sistema (12 tablas):
 - `Usuario` - Usuarios del sistema con roles
