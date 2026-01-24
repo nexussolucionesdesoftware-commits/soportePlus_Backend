@@ -83,7 +83,8 @@ CORS_ORIGINS=http://localhost:3000,http://localhost:8080
 ```bash
 python run.py
 # O alternativamente:
-flask run
+flask p'+
+
 ```
 
 La aplicación estará disponible en `http://localhost:5000`

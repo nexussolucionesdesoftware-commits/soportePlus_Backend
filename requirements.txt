@@ -7,7 +7,7 @@ Flask-CORS==4.0.0
 Flask-JWT-Extended==4.5.3
 
 # Database
-psycopg2-binary==2.9.7
+psycopg2-binary>=2.9.9
 SQLAlchemy==2.0.21
 
 # Validation and Serialization
