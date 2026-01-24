@@ -258,7 +258,7 @@ class Documento(db.Model):
     log_id = db.Column(
         db.Integer, db.ForeignKey("LogTransaccional.Id_log"), nullable=True
     )
-    log = db.relationship("LogTransaccional", backref="documentos")
+    #  log = db.relationship("LogTransaccional", backref="documentos")
 
     def __repr__(self):
         return f"<Documento {self.nombre_original}>"
