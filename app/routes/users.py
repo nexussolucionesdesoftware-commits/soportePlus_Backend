@@ -43,7 +43,7 @@ def get_users():
     current_user = Usuario.query.get(current_user_id)
 
     if not current_user:
-        return jsonify({"error": "User not found"}), 404
+        return jsonify({"error": "Usuario no encontrado"}), 404
 
     # Restricción de administrador eliminada para permitir carga de técnicos en el modal
 
@@ -77,11 +77,11 @@ def get_user(user_id):
     """
     current_user_id = get_jwt_identity()
 
-    # Users can only see their own profile or admin can see all
+    # Los usuarios solo pueden ver su propio perfil o el administrador puede ver todos
     if int(current_user_id) != user_id:
         current_user = Usuario.query.get(current_user_id)
         if not current_user or not current_user.is_admin:
-            return jsonify({"error": "Access denied"}), 403
+            return jsonify({"error": "Acceso denegado"}), 403
 
     user = Usuario.query.get_or_404(user_id)
 
@@ -114,48 +114,48 @@ def update_user(user_id):
     current_user = Usuario.query.get(current_user_id)
 
     if not current_user:
-        return jsonify({"error": "Current user not found"}), 404
+        return jsonify({"error": "Usuario actual no encontrado"}), 404
 
-    # Users can only edit their own profile or admin can edit all
+    # Los usuarios solo pueden editar su propio perfil o el administrador puede editar todos
     if int(current_user_id) != user_id and not current_user.is_admin:
         return (
-            jsonify({"error": "Access denied. You can only edit your own profile"}),
+            jsonify({"error": "Acceso denegado. Solo puedes editar tu propio perfil"}),
             403,
         )
 
-    # Find the user to update
+    # Buscar el usuario a actualizar
     user_to_update = Usuario.query.get(user_id)
     if not user_to_update:
-        return jsonify({"error": "User not found"}), 404
+        return jsonify({"error": "Usuario no encontrado"}), 404
 
-    # Validate request data
+    # Validar datos de la petición
     schema = UpdateUserSchema()
     try:
         data = schema.load(request.json or {})
     except ValidationError as err:
         return jsonify({"errors": err.messages}), 400
 
-    # If no data provided, return error
+    # Si no se proporcionan datos, devolver error
     if not data:
-        return jsonify({"error": "No data provided for update"}), 400
+        return jsonify({"error": "No se proporcionaron datos para actualizar"}), 400
 
-    # Check if email is being changed and if it's unique
+    # Verificar si se está cambiando el email y si es único
     if "email" in data and data["email"] != user_to_update.email:
         existing_user = Usuario.query.filter_by(email=data["email"]).first()
         if existing_user:
-            return jsonify({"error": "Email already exists"}), 400
+            return jsonify({"error": "El correo electrónico ya existe"}), 400
 
-    # Check if name is being changed and if it's unique
+    # Verificar si se está cambiando el nombre y si es único
     if "nombre" in data and data["nombre"] != user_to_update.Nombre:
         existing_user = Usuario.query.filter_by(Nombre=data["nombre"].strip()).first()
         if existing_user:
-            return jsonify({"error": "Username already exists"}), 400
+            return jsonify({"error": "El nombre de usuario ya existe"}), 400
 
-    # Only admins can change roles
+    # Solo los administradores pueden cambiar roles
     if "ID_Rol" in data and not current_user.is_admin:
-        return jsonify({"error": "Only admins can change user roles"}), 403
+        return jsonify({"error": "Solo los administradores pueden cambiar roles de usuario"}), 403
 
-    # Prevent admin from demoting themselves
+    # Prevenir que el administrador se quite privilegios a sí mismo
     if (
         "ID_Rol" in data
         and int(current_user_id) == user_id
@@ -163,12 +163,12 @@ def update_user(user_id):
         and data["ID_Rol"] != 1
     ):
         return (
-            jsonify({"error": "Cannot remove admin privileges from your own account"}),
+            jsonify({"error": "No puedes eliminar privilegios de administrador de tu propia cuenta"}),
             400,
         )
 
     try:
-        # Update fields
+        # Actualizar campos
         updated_fields = []
 
         if "nombre" in data:
@@ -192,7 +192,7 @@ def update_user(user_id):
         return (
             jsonify(
                 {
-                    "message": "User updated successfully",
+                    "message": "Usuario actualizado exitosamente",
                     "updated_fields": updated_fields,
                     "user": {
                         "id": user_to_update.ID_usuario,
@@ -208,7 +208,7 @@ def update_user(user_id):
 
     except Exception as e:
         db.session.rollback()
-        return jsonify({"error": "Failed to update user", "details": str(e)}), 500
+        return jsonify({"error": "Error al actualizar usuario", "details": str(e)}), 500
 
 
 @users_bp.route("/<int:user_id>", methods=["DELETE"])
@@ -226,34 +226,34 @@ def delete_user(user_id):
     current_user = Usuario.query.get(current_user_id)
 
     if not current_user:
-        return jsonify({"error": "User not found"}), 404
+        return jsonify({"error": "Usuario no encontrado"}), 404
 
-    # Only admins can delete users
+    # Solo los administradores pueden eliminar usuarios
     if not current_user.is_admin:
-        return jsonify({"error": "Admin access required"}), 403
+        return jsonify({"error": "Se requiere acceso de administrador"}), 403
 
-    # Users cannot delete themselves
+    # Los usuarios no pueden eliminarse a sí mismos
     if int(current_user_id) == user_id:
-        return jsonify({"error": "Cannot delete your own account"}), 400
+        return jsonify({"error": "No puedes eliminar tu propia cuenta"}), 400
 
-    # Find the user to delete
+    # Buscar el usuario a eliminar
     user_to_delete = Usuario.query.get(user_id)
     if not user_to_delete:
-        return jsonify({"error": "User not found"}), 404
+        return jsonify({"error": "Usuario no encontrado"}), 404
 
-    # Check if user has active tickets assigned
+    # Verificar si el usuario tiene tickets activos asignados
     if (
         hasattr(user_to_delete, "tiquets_asignados")
         and user_to_delete.tiquets_asignados
     ):
         active_tickets = [
             t for t in user_to_delete.tiquets_asignados if t.ID_estado != 3
-        ]  # Assuming 3 = closed
+        ]  # Asumiendo 3 = cerrado
         if active_tickets:
             return (
                 jsonify(
                     {
-                        "error": "Cannot delete user with active assigned tickets",
+                        "error": "No se puede eliminar el usuario con tickets activos asignados",
                         "active_tickets_count": len(active_tickets),
                     }
                 ),
@@ -261,21 +261,21 @@ def delete_user(user_id):
             )
 
     try:
-        # Store user info for response
+        # Guardar info del usuario para la respuesta
         deleted_user_info = {
             "id": user_to_delete.ID_usuario,
             "nombre": user_to_delete.Nombre,
             "email": user_to_delete.email,
         }
 
-        # Delete the user (related logs and comments will be handled by cascade or remain as historical data)
+        # Eliminar el usuario (logs y comentarios relacionados serán manejados por cascada o permanecerán como datos históricos)
         db.session.delete(user_to_delete)
         db.session.commit()
 
         return (
             jsonify(
                 {
-                    "message": "User deleted successfully",
+                    "message": "Usuario eliminado exitosamente",
                     "deleted_user": deleted_user_info,
                 }
             ),
@@ -284,7 +284,7 @@ def delete_user(user_id):
 
     except Exception as e:
         db.session.rollback()
-        return jsonify({"error": "Failed to delete user", "details": str(e)}), 500
+        return jsonify({"error": "Error al eliminar usuario", "details": str(e)}), 500
 
 
 @users_bp.route("/roles", methods=["GET"])

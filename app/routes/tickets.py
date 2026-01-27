@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from sqlalchemy.orm import joinedload
+from sqlalchemy import or_
 from datetime import datetime
 from app import db
 from app.models.soporteplus_models import (
@@ -154,10 +155,19 @@ def get_tickets():
             joinedload(Tiquet.estado_rel)
         )
 
-        # NOTA: Se elimina el filtro por User_asig para clientes para que puedan ver
-        # los tickets que crearon aunque estén asignados a un técnico diferente.
-        # Si se requiere filtrar por creador, se necesitaría un campo 'created_by' en la BD.
-        
+        # Lógica de filtrado por roles
+        if current_user:
+            # Solo Usuarios (Rol 3) se filtran. Técnicos (Rol 2) y Admins (Rol 1) ven todo.
+            if current_user.ID_Rol == 3:
+                # Usuarios (Rol 3): Ven tickets asignados a ellos O creados por ellos
+                # Usamos Tel_ext para guardar el ID del creador (workaround)
+                query = query.filter(
+                    or_(
+                        Tiquet.User_asig == current_user_id,
+                        Tiquet.Tel_ext == str(current_user_id)
+                    )
+                )
+
         tickets = query.all()
         
         return jsonify({
@@ -308,6 +318,10 @@ def create_ticket():
         # Si no especifican un técnico (User_asig), se le asigna al usuario actual por defecto.
         if 'User_asig' not in data or not data.get('User_asig'):
             data['User_asig'] = current_user_id
+            
+        # Guardar el ID del creador en el campo Tel_ext (que no se usa) para poder filtrar después
+        # Esto permite que el usuario siga viendo el ticket aunque se lo asigne a un técnico
+        data['Tel_ext'] = str(current_user_id)
 
         # Validar y transformar datos usando el schema
         try:
@@ -692,23 +706,58 @@ def get_dashboard_stats():
     para generar gráficas y reportes.
     """
     try:
-        total_tickets = Tiquet.query.count()
-        tickets_abiertos = Tiquet.query.join(EstadoTiquet).filter(
+        current_user_id = int(get_jwt_identity())
+        current_user = Usuario.query.get(current_user_id)
+
+        # Base query para conteos simples
+        query = Tiquet.query
+
+        # Aplicar filtros de seguridad (mismo que en get_tickets)
+        if current_user:
+            # Solo Usuarios (Rol 3) se filtran.
+            if current_user.ID_Rol == 3:
+                # Usuarios: Sus tickets (asignados o creados)
+                query = query.filter(
+                    or_(
+                        Tiquet.User_asig == current_user_id,
+                        Tiquet.Tel_ext == str(current_user_id)
+                    )
+                )
+
+        total_tickets = query.count()
+        
+        # Tickets abiertos (reutilizando el query filtrado)
+        tickets_abiertos = query.join(EstadoTiquet).filter(
             EstadoTiquet.Nombre != 'Cerrado'
         ).count()
+        
         tickets_cerrados = total_tickets - tickets_abiertos
         
         # Tickets por estado
-        tickets_por_estado = db.session.query(
+        q_estado = db.session.query(
             EstadoTiquet.Nombre,
             db.func.count(Tiquet.Id_Tiquet)
-        ).outerjoin(Tiquet).group_by(EstadoTiquet.ID_estado).all()
+        ).outerjoin(Tiquet)
+
+        # Aplicar filtros a la query de estados
+        if current_user:
+            if current_user.ID_Rol == 3:
+                q_estado = q_estado.filter(or_(Tiquet.User_asig == current_user_id, Tiquet.Tel_ext == str(current_user_id)))
+
+        tickets_por_estado = q_estado.group_by(EstadoTiquet.ID_estado).all()
         
         # Tickets por criticidad
-        tickets_por_criticidad = db.session.query(
+        q_crit = db.session.query(
             CatalogoCriticidad.Nombre,
             db.func.count(Tiquet.Id_Tiquet)
-        ).outerjoin(Tiquet).group_by(CatalogoCriticidad.ID_criti).all()
+        ).outerjoin(Tiquet)
+
+        # Aplicar filtros a la query de criticidad
+        if current_user:
+            if current_user.ID_Rol == 3:
+                q_crit = q_crit.filter(or_(Tiquet.User_asig == current_user_id, Tiquet.Tel_ext == str(current_user_id)))
+
+        tickets_por_criticidad = q_crit.group_by(CatalogoCriticidad.ID_criti).all()
         
         return jsonify({
             'status': 'success',
