@@ -5,7 +5,7 @@ from datetime import datetime
 from app import db
 from app.models.soporteplus_models import (
     Tiquet, CatTiquet, EstadoTiquet, CatalogoCriticidad,
-    Ubicaciones, Usuario, Comentarios
+    Ubicaciones, Usuario, Comentarios, Documento
 )
 from marshmallow import Schema, fields, pre_load, ValidationError
 
@@ -86,6 +86,20 @@ class UsuarioSchema(Schema):
     ID_Rol = fields.Int(allow_none=True)
 
 
+class ComentarioSchema(Schema):
+    """Schema para comentarios de tickets"""
+    ID_comentario = fields.Int(dump_only=True)
+    mensaje = fields.Str(allow_none=True)
+    Tipo = fields.Str(allow_none=True)
+    Satisfaccion = fields.Int(allow_none=True)
+    usuario = fields.Int(allow_none=True)
+    Id_Tiquet = fields.Int(allow_none=True)
+    Fecha = fields.Raw(allow_none=True)
+
+    # Extra útil para UI
+    usuario_rel = fields.Nested('UsuarioSchema', dump_only=True)
+
+
 # Instanciar schemas
 tiquet_schema = TiquetSchema()
 tiquets_schema = TiquetSchema(many=True)
@@ -97,6 +111,9 @@ criticidad_schema = CatalogoCriticidadSchema()
 criticidades_schema = CatalogoCriticidadSchema(many=True)
 ubicacion_schema = UbicacionesSchema()
 ubicaciones_schema = UbicacionesSchema(many=True)
+
+comentario_schema = ComentarioSchema()
+comentarios_schema = ComentarioSchema(many=True)
 
 
 @bp.route('/tickets', methods=['GET'])
@@ -154,6 +171,77 @@ def get_ticket(ticket_id):
             'status': 'error',
             'message': str(e)
         }), 500
+
+
+@bp.route('/tickets/<int:ticket_id>/comentarios', methods=['GET'])
+@jwt_required()
+def get_ticket_comentarios(ticket_id):
+    """Obtener comentarios de un ticket"""
+    try:
+        # Verificar que el ticket existe
+        ticket = Tiquet.query.filter_by(Id_Tiquet=ticket_id).first()
+        if not ticket:
+            return jsonify({'status': 'error', 'message': 'Ticket not found'}), 404
+
+        comentarios = (
+            Comentarios.query.options(joinedload(Comentarios.usuario_rel))
+            .filter_by(Id_Tiquet=ticket_id)
+            .order_by(Comentarios.ID_comentario.asc())
+            .all()
+        )
+
+        return jsonify({
+            'status': 'success',
+            'data': comentarios_schema.dump(comentarios),
+            'total': len(comentarios)
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@bp.route('/tickets/<int:ticket_id>/comentarios', methods=['POST'])
+@jwt_required()
+def add_ticket_comentario(ticket_id):
+    """Agregar comentario (seguimiento) a un ticket"""
+    try:
+        data = request.get_json() or {}
+        mensaje = (data.get('mensaje') or data.get('comentario') or '').strip()
+
+        if not mensaje:
+            return jsonify({'status': 'error', 'message': 'El mensaje es requerido'}), 400
+
+        ticket = Tiquet.query.filter_by(Id_Tiquet=ticket_id).first()
+        if not ticket:
+            return jsonify({'status': 'error', 'message': 'Ticket not found'}), 404
+
+        user_id = int(get_jwt_identity())
+        user = Usuario.query.get(user_id)
+
+        # Enum en BD: ('Usuario', 'tecnico')
+        tipo = 'tecnico' if (user and user.ID_Rol == 2) or (user and user.is_admin) else 'Usuario'
+
+        comentario = Comentarios(
+            mensaje=mensaje,
+            Tipo=tipo,
+            usuario=user_id,
+            Id_Tiquet=ticket_id,
+            Fecha=datetime.utcnow().date(),
+        )
+
+        db.session.add(comentario)
+        db.session.commit()
+
+        comentario_db = Comentarios.query.options(joinedload(Comentarios.usuario_rel)).get(comentario.ID_comentario)
+
+        return jsonify({
+            'status': 'success',
+            'message': 'Comentario agregado',
+            'data': comentario_schema.dump(comentario_db)
+        }), 201
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
 @bp.route('/tickets', methods=['POST'])
@@ -251,9 +339,8 @@ def delete_ticket(ticket_id):
     try:
         ticket = Tiquet.query.get_or_404(ticket_id)
         
-        # Opcional: Eliminar registros relacionados primero si es necesario
-        # (SQLAlchemy debería manejar esto automáticamente si está configurado en cascade)
-        
+        # Eliminar registros relacionados primero si es necesario
+      
         db.session.delete(ticket)
         db.session.commit()
         
@@ -278,7 +365,7 @@ def close_ticket(ticket_id):
         # Buscar el ticket
         ticket = Tiquet.query.get_or_404(ticket_id)
         
-        # Buscar el estado "cerrado" (asumiendo que existe un estado con nombre "Cerrado")
+        # Buscar el estado "cerrado" 
         estado_cerrado = EstadoTiquet.query.filter_by(Nombre='Cerrado').first()
         if not estado_cerrado:
             # Si no encuentra "Cerrado", buscar por variaciones comunes
