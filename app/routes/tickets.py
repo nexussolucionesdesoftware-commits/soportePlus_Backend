@@ -13,7 +13,12 @@ bp = Blueprint('tickets', __name__)
 
 
 class TiquetSchema(Schema):
-    """Schema para serializar tickets"""
+    """
+    Esquema de Marshmallow para la serialización y validación de Tickets.
+    
+    Define los campos que se exponen en la API y cómo se procesan los datos de entrada,
+    incluyendo la conversión de formatos de fecha.
+    """
     Id_Tiquet = fields.Int(dump_only=True)
     Categoria = fields.Int(allow_none=True)
     Tel_ext = fields.Str(allow_none=True)
@@ -35,7 +40,15 @@ class TiquetSchema(Schema):
     
     @pre_load
     def convert_date_format(self, data, **kwargs):
-        """Convierte fecha de dd-mm-yyyy a yyyy-mm-dd para la base de datos"""
+        """
+        Pre-procesamiento de datos antes de la validación.
+        
+        Convierte la fecha de entrada (dd-mm-yyyy) al formato compatible con la base de datos (date object).
+        Si no se proporciona fecha, asigna la fecha actual.
+        
+        Args:
+            data (dict): Datos crudos recibidos en la petición.
+        """
         if 'fecha_apertura_input' in data and data['fecha_apertura_input']:
             try:
                 # Convertir de dd-mm-yyyy a date object
@@ -119,16 +132,33 @@ comentarios_schema = ComentarioSchema(many=True)
 @bp.route('/tickets', methods=['GET'])
 @jwt_required()
 def get_tickets():
-    """Obtener todos los tickets con sus relaciones cargadas"""
+    """
+    Obtener todos los tickets registrados en el sistema.
+    
+    Utiliza 'joinedload' para realizar una carga ansiosa (eager loading) de las relaciones
+    (categoría, ubicación, criticidad, usuario, estado) y evitar el problema de N+1 consultas.
+    
+    Returns:
+        JSON: Lista de tickets serializados y el total de registros.
+    """
     try:
-        # Cargar tickets con todas sus relaciones usando joinedload
-        tickets = Tiquet.query.options(
+        current_user_id = int(get_jwt_identity())
+        current_user = Usuario.query.get(current_user_id)
+
+        # Query base con relaciones
+        query = Tiquet.query.options(
             joinedload(Tiquet.categoria_rel),
             joinedload(Tiquet.ubicacion_rel),
             joinedload(Tiquet.criticidad_rel),
             joinedload(Tiquet.usuario_asignado),
             joinedload(Tiquet.estado_rel)
-        ).all()
+        )
+
+        # NOTA: Se elimina el filtro por User_asig para clientes para que puedan ver
+        # los tickets que crearon aunque estén asignados a un técnico diferente.
+        # Si se requiere filtrar por creador, se necesitaría un campo 'created_by' en la BD.
+        
+        tickets = query.all()
         
         return jsonify({
             'status': 'success',
@@ -145,7 +175,15 @@ def get_tickets():
 @bp.route('/tickets/<int:ticket_id>', methods=['GET'])
 @jwt_required()
 def get_ticket(ticket_id):
-    """Obtener un ticket específico con sus relaciones cargadas"""
+    """
+    Obtener los detalles de un ticket específico por su ID.
+    
+    Args:
+        ticket_id (int): ID del ticket a consultar.
+        
+    Returns:
+        JSON: Datos del ticket o error 404 si no existe.
+    """
     try:
         # Cargar ticket específico con todas sus relaciones
         ticket = Tiquet.query.options(
@@ -247,7 +285,14 @@ def add_ticket_comentario(ticket_id):
 @bp.route('/tickets', methods=['POST'])
 @jwt_required()
 def create_ticket():
-    """Crear un nuevo ticket con conversión de fecha"""
+    """
+    Crear un nuevo ticket en el sistema.
+    
+    Valida los datos de entrada utilizando TiquetSchema.
+    
+    Returns:
+        JSON: El ticket creado con sus datos y relaciones, o lista de errores de validación.
+    """
     try:
         data = request.get_json()
         if not data:
@@ -256,6 +301,14 @@ def create_ticket():
                 'message': 'No se proporcionaron datos'
             }), 400
         
+        # Forzar la asignación del ticket al usuario que lo crea si es un cliente (Rol 3)
+        current_user_id = int(get_jwt_identity())
+        current_user = Usuario.query.get(current_user_id)
+
+        # Si no especifican un técnico (User_asig), se le asigna al usuario actual por defecto.
+        if 'User_asig' not in data or not data.get('User_asig'):
+            data['User_asig'] = current_user_id
+
         # Validar y transformar datos usando el schema
         try:
             validated_data = tiquet_schema.load(data)
@@ -297,7 +350,15 @@ def create_ticket():
 @bp.route('/tickets/<int:ticket_id>', methods=['PUT'])
 @jwt_required()
 def update_ticket(ticket_id):
-    """Actualizar un ticket"""
+    """
+    Actualizar la información de un ticket existente.
+    
+    Args:
+        ticket_id (int): ID del ticket a actualizar.
+        
+    Returns:
+        JSON: Datos del ticket actualizado.
+    """
     try:
         ticket = Tiquet.query.get_or_404(ticket_id)
         data = request.get_json()
@@ -311,6 +372,19 @@ def update_ticket(ticket_id):
                 'errors': errors
             }), 400
         
+        # Obtener usuario actual para verificar permisos
+        current_user_id = int(get_jwt_identity())
+        current_user = Usuario.query.get(current_user_id)
+
+        # Validar que el usuario sea dueño del ticket o admin (si es Rol 3)
+        # COMENTADO: Permitir que el usuario edite el ticket (para agregar comentarios)
+        # aunque ya esté asignado a un técnico.
+        # if current_user and current_user.ID_Rol == 3 and ticket.User_asig != current_user_id:
+        #     return jsonify({
+        #         'status': 'error',
+        #         'message': 'No tienes permiso para editar este ticket'
+        #     }), 403
+
         # Actualizar campos
         for key, value in data.items():
             if hasattr(ticket, key):
@@ -335,7 +409,15 @@ def update_ticket(ticket_id):
 @bp.route('/tickets/<int:ticket_id>', methods=['DELETE'])
 @jwt_required()
 def delete_ticket(ticket_id):
-    """Eliminar un ticket"""
+    """
+    Eliminar un ticket del sistema.
+    
+    Args:
+        ticket_id (int): ID del ticket a eliminar.
+        
+    Returns:
+        JSON: Mensaje de confirmación.
+    """
     try:
         ticket = Tiquet.query.get_or_404(ticket_id)
         
@@ -360,7 +442,15 @@ def delete_ticket(ticket_id):
 @bp.route('/tickets/<int:ticket_id>/close', methods=['PUT'])
 @jwt_required()
 def close_ticket(ticket_id):
-    """Cerrar un ticket - establece fecha de cierre y cambia estado a cerrado"""
+    """
+    Cerrar un ticket formalmente.
+    
+    Esta acción busca el estado 'Cerrado' en la base de datos, actualiza el estado del ticket
+    y establece la fecha de cierre actual automáticamente.
+    
+    Args:
+        ticket_id (int): ID del ticket a cerrar.
+    """
     try:
         # Buscar el ticket
         ticket = Tiquet.query.get_or_404(ticket_id)
@@ -433,7 +523,7 @@ def close_ticket(ticket_id):
 @bp.route('/categorias', methods=['GET'])
 @jwt_required()
 def get_categorias():
-    """Obtener todas las categorías"""
+    """Obtener el catálogo completo de categorías de tickets."""
     categorias = CatTiquet.query.all()
     return jsonify({
         'status': 'success',
@@ -444,7 +534,7 @@ def get_categorias():
 @bp.route('/categorias', methods=['POST'])
 @jwt_required()
 def create_categoria():
-    """Crear una nueva categoría"""
+    """Crear una nueva categoría en el catálogo."""
     try:
         # Validar datos de entrada
         categoria_data = cat_tiquet_schema.load(request.json)
@@ -481,7 +571,7 @@ def create_categoria():
 @bp.route('/categorias/<int:categoria_id>', methods=['PUT'])
 @jwt_required()
 def update_categoria(categoria_id):
-    """Actualizar una categoría existente"""
+    """Actualizar los datos de una categoría existente."""
     try:
         # Buscar la categoría
         categoria = CatTiquet.query.get(categoria_id)
@@ -525,7 +615,7 @@ def update_categoria(categoria_id):
 @bp.route('/categorias/<int:categoria_id>', methods=['DELETE'])
 @jwt_required()
 def delete_categoria(categoria_id):
-    """Eliminar una categoría"""
+    """Eliminar una categoría (si no está en uso)."""
     try:
         # Buscar la categoría
         categoria = CatTiquet.query.get(categoria_id)
@@ -562,7 +652,7 @@ def delete_categoria(categoria_id):
 @bp.route('/estados', methods=['GET'])
 @jwt_required()
 def get_estados():
-    """Obtener todos los estados"""
+    """Obtener el catálogo de estados posibles para un ticket."""
     estados = EstadoTiquet.query.all()
     return jsonify({
         'status': 'success',
@@ -573,7 +663,7 @@ def get_estados():
 @bp.route('/criticidades', methods=['GET'])
 @jwt_required()
 def get_criticidades():
-    """Obtener todas las criticidades"""
+    """Obtener el catálogo de niveles de criticidad."""
     criticidades = CatalogoCriticidad.query.all()
     return jsonify({
         'status': 'success',
@@ -584,7 +674,7 @@ def get_criticidades():
 @bp.route('/ubicaciones', methods=['GET'])
 @jwt_required()
 def get_ubicaciones():
-    """Obtener todas las ubicaciones"""
+    """Obtener el catálogo de ubicaciones disponibles."""
     ubicaciones = Ubicaciones.query.all()
     return jsonify({
         'status': 'success',
@@ -595,7 +685,12 @@ def get_ubicaciones():
 @bp.route('/dashboard/stats', methods=['GET'])
 @jwt_required()
 def get_dashboard_stats():
-    """Obtener estadísticas para el dashboard"""
+    """
+    Obtener estadísticas generales para el panel de control (Dashboard).
+    
+    Calcula totales de tickets, desglose por estado y por criticidad
+    para generar gráficas y reportes.
+    """
     try:
         total_tickets = Tiquet.query.count()
         tickets_abiertos = Tiquet.query.join(EstadoTiquet).filter(

@@ -9,7 +9,7 @@ auth_bp = Blueprint('auth', __name__)
 
 
 class RegisterSchema(Schema):
-    """Schema for user registration."""
+    """Esquema de validación para el registro de usuarios."""
     nombre = fields.Str(required=True, validate=lambda x: len(x) >= 3)
     email = fields.Email(required=True)
     password = fields.Str(required=True, validate=lambda x: len(x) >= 6)
@@ -17,14 +17,22 @@ class RegisterSchema(Schema):
 #    Apellido = fields.Str(required=True, validate=lambda x: len(x) >= 3)
 
 class LoginSchema(Schema):
-    """Schema for user login."""
+    """Esquema de validación para el inicio de sesión."""
     email = fields.Email(required=True)
     password = fields.Str(required=True)
 
 
 @auth_bp.route('/register', methods=['POST'])
 def register():
-    """Register a new user."""
+    """
+    Registrar un nuevo usuario en el sistema.
+    
+    Valida que el email y el nombre de usuario no existan previamente.
+    Crea el usuario, hashea la contraseña y devuelve tokens de acceso.
+    
+    Returns:
+        JSON: Datos del usuario creado y tokens JWT.
+    """
     schema = RegisterSchema()
     
     try:
@@ -67,7 +75,14 @@ def register():
 
 @auth_bp.route('/login', methods=['POST'])
 def login():
-    """Login user."""
+    """
+    Iniciar sesión de usuario.
+    
+    Verifica credenciales (email y contraseña) y estado de la cuenta.
+    
+    Returns:
+        JSON: Tokens de acceso (JWT) y datos básicos del usuario si las credenciales son válidas.
+    """
     schema = LoginSchema()
     
     try:
@@ -103,7 +118,11 @@ def login():
 @auth_bp.route('/me', methods=['GET'])
 @jwt_required()
 def get_current_user():
-    """Get current user information."""
+    """
+    Obtener información del usuario actualmente autenticado.
+    
+    Utiliza el token JWT enviado en la cabecera Authorization para identificar al usuario.
+    """
     user_id = int(get_jwt_identity())  # Convertir de string a int
     user = Usuario.query.get_or_404(user_id)
     
