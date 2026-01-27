@@ -1,19 +1,22 @@
-from flask import Blueprint, request, jsonify
-from flask_jwt_extended import jwt_required, get_jwt_identity
-from sqlalchemy.orm import joinedload
-from sqlalchemy import or_
 from datetime import datetime
 
 from flask import Blueprint, current_app, jsonify, request
-from flask_jwt_extended import jwt_required
+from flask_jwt_extended import get_jwt_identity, jwt_required
 from marshmallow import Schema, ValidationError, fields, pre_load
+from sqlalchemy import or_
 from sqlalchemy.orm import joinedload
 from werkzeug.utils import secure_filename
 
 from app import db
 from app.models.soporteplus_models import (
-    Tiquet, CatTiquet, EstadoTiquet, CatalogoCriticidad,
-    Ubicaciones, Usuario, Comentarios, Documento
+    CatalogoCriticidad,
+    CatTiquet,
+    Comentarios,
+    Documento,
+    EstadoTiquet,
+    Tiquet,
+    Ubicaciones,
+    Usuario,
 )
 
 bp = Blueprint("tickets", __name__)
@@ -36,10 +39,11 @@ class DocumentoSchema(Schema):
 class TiquetSchema(Schema):
     """
     Esquema de Marshmallow para la serialización y validación de Tickets.
-    
+
     Define los campos que se exponen en la API y cómo se procesan los datos de entrada,
     incluyendo la conversión de formatos de fecha.
     """
+
     Id_Tiquet = fields.Int(dump_only=True)
     Categoria = fields.Int(allow_none=True)
     Tel_ext = fields.Str(allow_none=True)
@@ -66,14 +70,14 @@ class TiquetSchema(Schema):
     def convert_date_format(self, data, **kwargs):
         """
         Pre-procesamiento de datos antes de la validación.
-        
+
         Convierte la fecha de entrada (dd-mm-yyyy) al formato compatible con la base de datos (date object).
         Si no se proporciona fecha, asigna la fecha actual.
-        
+
         Args:
             data (dict): Datos crudos recibidos en la petición.
         """
-        if 'fecha_apertura_input' in data and data['fecha_apertura_input']:
+        if "fecha_apertura_input" in data and data["fecha_apertura_input"]:
             try:
                 fecha_input = data["fecha_apertura_input"]
                 fecha_obj = datetime.strptime(fecha_input, "%d-%m-%Y").date()
@@ -119,6 +123,7 @@ class UsuarioSchema(Schema):
 
 class ComentarioSchema(Schema):
     """Schema para comentarios de tickets"""
+
     ID_comentario = fields.Int(dump_only=True)
     mensaje = fields.Str(allow_none=True)
     Tipo = fields.Str(allow_none=True)
@@ -128,7 +133,7 @@ class ComentarioSchema(Schema):
     Fecha = fields.Raw(allow_none=True)
 
     # Extra útil para UI
-    usuario_rel = fields.Nested('UsuarioSchema', dump_only=True)
+    usuario_rel = fields.Nested("UsuarioSchema", dump_only=True)
 
 
 # Instanciar schemas
@@ -149,10 +154,10 @@ comentarios_schema = ComentarioSchema(many=True)
 def get_tickets():
     """
     Obtener todos los tickets registrados en el sistema.
-    
+
     Utiliza 'joinedload' para realizar una carga ansiosa (eager loading) de las relaciones
     (categoría, ubicación, criticidad, usuario, estado) y evitar el problema de N+1 consultas.
-    
+
     Returns:
         JSON: Lista de tickets serializados y el total de registros.
     """
@@ -166,7 +171,7 @@ def get_tickets():
             joinedload(Tiquet.ubicacion_rel),
             joinedload(Tiquet.criticidad_rel),
             joinedload(Tiquet.usuario_asignado),
-            joinedload(Tiquet.estado_rel)
+            joinedload(Tiquet.estado_rel),
         )
 
         # Lógica de filtrado por roles
@@ -178,17 +183,19 @@ def get_tickets():
                 query = query.filter(
                     or_(
                         Tiquet.User_asig == current_user_id,
-                        Tiquet.Tel_ext == str(current_user_id)
+                        Tiquet.Tel_ext == str(current_user_id),
                     )
                 )
 
         tickets = query.all()
-        
-        return jsonify({
-            'status': 'success',
-            'data': tiquets_schema.dump(tickets),
-            'total': len(tickets)
-        })
+
+        return jsonify(
+            {
+                "status": "success",
+                "data": tiquets_schema.dump(tickets),
+                "total": len(tickets),
+            }
+        )
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
@@ -198,10 +205,10 @@ def get_tickets():
 def get_ticket(ticket_id):
     """
     Obtener los detalles de un ticket específico por su ID.
-    
+
     Args:
         ticket_id (int): ID del ticket a consultar.
-        
+
     Returns:
         JSON: Datos del ticket o error 404 si no existe.
     """
@@ -223,7 +230,7 @@ def get_ticket(ticket_id):
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
-@bp.route('/tickets/<int:ticket_id>/comentarios', methods=['GET'])
+@bp.route("/tickets/<int:ticket_id>/comentarios", methods=["GET"])
 @jwt_required()
 def get_ticket_comentarios(ticket_id):
     """Obtener comentarios de un ticket"""
@@ -231,7 +238,7 @@ def get_ticket_comentarios(ticket_id):
         # Verificar que el ticket existe
         ticket = Tiquet.query.filter_by(Id_Tiquet=ticket_id).first()
         if not ticket:
-            return jsonify({'status': 'error', 'message': 'Ticket not found'}), 404
+            return jsonify({"status": "error", "message": "Ticket not found"}), 404
 
         comentarios = (
             Comentarios.query.options(joinedload(Comentarios.usuario_rel))
@@ -240,35 +247,43 @@ def get_ticket_comentarios(ticket_id):
             .all()
         )
 
-        return jsonify({
-            'status': 'success',
-            'data': comentarios_schema.dump(comentarios),
-            'total': len(comentarios)
-        })
+        return jsonify(
+            {
+                "status": "success",
+                "data": comentarios_schema.dump(comentarios),
+                "total": len(comentarios),
+            }
+        )
     except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 
-@bp.route('/tickets/<int:ticket_id>/comentarios', methods=['POST'])
+@bp.route("/tickets/<int:ticket_id>/comentarios", methods=["POST"])
 @jwt_required()
 def add_ticket_comentario(ticket_id):
     """Agregar comentario (seguimiento) a un ticket"""
     try:
         data = request.get_json() or {}
-        mensaje = (data.get('mensaje') or data.get('comentario') or '').strip()
+        mensaje = (data.get("mensaje") or data.get("comentario") or "").strip()
 
         if not mensaje:
-            return jsonify({'status': 'error', 'message': 'El mensaje es requerido'}), 400
+            return jsonify(
+                {"status": "error", "message": "El mensaje es requerido"}
+            ), 400
 
         ticket = Tiquet.query.filter_by(Id_Tiquet=ticket_id).first()
         if not ticket:
-            return jsonify({'status': 'error', 'message': 'Ticket not found'}), 404
+            return jsonify({"status": "error", "message": "Ticket not found"}), 404
 
         user_id = int(get_jwt_identity())
         user = Usuario.query.get(user_id)
 
         # Enum en BD: ('Usuario', 'tecnico')
-        tipo = 'tecnico' if (user and user.ID_Rol == 2) or (user and user.is_admin) else 'Usuario'
+        tipo = (
+            "tecnico"
+            if (user and user.ID_Rol == 2) or (user and user.is_admin)
+            else "Usuario"
+        )
 
         comentario = Comentarios(
             mensaje=mensaje,
@@ -281,60 +296,65 @@ def add_ticket_comentario(ticket_id):
         db.session.add(comentario)
         db.session.commit()
 
-        comentario_db = Comentarios.query.options(joinedload(Comentarios.usuario_rel)).get(comentario.ID_comentario)
+        comentario_db = Comentarios.query.options(
+            joinedload(Comentarios.usuario_rel)
+        ).get(comentario.ID_comentario)
 
-        return jsonify({
-            'status': 'success',
-            'message': 'Comentario agregado',
-            'data': comentario_schema.dump(comentario_db)
-        }), 201
+        return jsonify(
+            {
+                "status": "success",
+                "message": "Comentario agregado",
+                "data": comentario_schema.dump(comentario_db),
+            }
+        ), 201
 
     except Exception as e:
         db.session.rollback()
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 
-@bp.route('/tickets', methods=['POST'])
+@bp.route("/tickets", methods=["POST"])
 @jwt_required()
 def create_ticket():
     """
     Crear un nuevo ticket en el sistema.
-    
+
     Valida los datos de entrada utilizando TiquetSchema.
-    
+
     Returns:
         JSON: El ticket creado con sus datos y relaciones, o lista de errores de validación.
     """
     try:
         data = request.get_json()
         if not data:
-            return jsonify({
-                'status': 'error',
-                'message': 'No se proporcionaron datos'
-            }), 400
-        
+            return jsonify(
+                {"status": "error", "message": "No se proporcionaron datos"}
+            ), 400
+
         # Forzar la asignación del ticket al usuario que lo crea si es un cliente (Rol 3)
         current_user_id = int(get_jwt_identity())
         current_user = Usuario.query.get(current_user_id)
 
         # Si no especifican un técnico (User_asig), se le asigna al usuario actual por defecto.
-        if 'User_asig' not in data or not data.get('User_asig'):
-            data['User_asig'] = current_user_id
-            
+        if "User_asig" not in data or not data.get("User_asig"):
+            data["User_asig"] = current_user_id
+
         # Guardar el ID del creador en el campo Tel_ext (que no se usa) para poder filtrar después
         # Esto permite que el usuario siga viendo el ticket aunque se lo asigne a un técnico
-        data['Tel_ext'] = str(current_user_id)
+        data["Tel_ext"] = str(current_user_id)
 
         # Validar y transformar datos usando el schema
         try:
             validated_data = tiquet_schema.load(data)
         except ValidationError as err:
-            return jsonify({
-                'status': 'error',
-                'message': 'Datos inválidos',
-                'errors': err.messages
-            }), 400
-        
+            return jsonify(
+                {
+                    "status": "error",
+                    "message": "Datos inválidos",
+                    "errors": err.messages,
+                }
+            ), 400
+
         # Crear ticket con datos validados
         ticket = Tiquet(**validated_data)
         db.session.add(ticket)
@@ -356,10 +376,10 @@ def create_ticket():
 def update_ticket(ticket_id):
     """
     Actualizar la información de un ticket existente.
-    
+
     Args:
         ticket_id (int): ID del ticket a actualizar.
-        
+
     Returns:
         JSON: Datos del ticket actualizado.
     """
@@ -369,16 +389,14 @@ def update_ticket(ticket_id):
 
         # 2. Obtener los datos que envía React
         data = request.get_json()
-        
+
         # Validar datos
         errors = tiquet_schema.validate(data, partial=True)
         if errors:
-            return jsonify({
-                'status': 'error',
-                'message': 'Datos inválidos',
-                'errors': errors
-            }), 400
-        
+            return jsonify(
+                {"status": "error", "message": "Datos inválidos", "errors": errors}
+            ), 400
+
         # Obtener usuario actual para verificar permisos
         current_user_id = int(get_jwt_identity())
         current_user = Usuario.query.get(current_user_id)
@@ -396,7 +414,7 @@ def update_ticket(ticket_id):
         for key, value in data.items():
             if hasattr(ticket, key):
                 setattr(ticket, key, value)
-        
+
         db.session.commit()
 
         return jsonify(
@@ -406,32 +424,40 @@ def update_ticket(ticket_id):
                 "data": tiquet_schema.dump(ticket),
             }
         )
+    except Exception as e:
+        db.session.rollback()
+        return jsonify(
+            {"status": "error", "message": f"Error al actualizar el ticket: {str(e)}"}
+        ), 500
 
-@bp.route('/tickets/<int:ticket_id>', methods=['DELETE'])
+
+@bp.route("/tickets/<int:ticket_id>", methods=["DELETE"])
 @jwt_required()
 def delete_ticket(ticket_id):
     """
     Eliminar un ticket del sistema.
-    
+
     Args:
         ticket_id (int): ID del ticket a eliminar.
-        
+
     Returns:
         JSON: Mensaje de confirmación.
     """
     try:
         ticket = Tiquet.query.get_or_404(ticket_id)
-        
+
         # Eliminar registros relacionados primero si es necesario
-      
+
         db.session.delete(ticket)
         db.session.commit()
-        
-        return jsonify({
-            'status': 'success',
-            'message': f'Ticket {ticket_id} eliminado exitosamente'
-        })
-        
+
+        return jsonify(
+            {
+                "status": "success",
+                "message": f"Ticket {ticket_id} eliminado exitosamente",
+            }
+        )
+
     except Exception as e:
         db.session.rollback()
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -442,49 +468,55 @@ def delete_ticket(ticket_id):
 def close_ticket(ticket_id):
     """
     Cerrar un ticket formalmente.
-    
+
     Esta acción busca el estado 'Cerrado' en la base de datos, actualiza el estado del ticket
     y establece la fecha de cierre actual automáticamente.
-    
+
     Args:
         ticket_id (int): ID del ticket a cerrar.
     """
     try:
         # 1. Buscar el ticket
         ticket = Tiquet.query.get_or_404(ticket_id)
-        
-        # Buscar el estado "cerrado" 
-        estado_cerrado = EstadoTiquet.query.filter_by(Nombre='Cerrado').first()
+
+        # Buscar el estado "cerrado"
+        estado_cerrado = EstadoTiquet.query.filter_by(Nombre="Cerrado").first()
         if not estado_cerrado:
             # Si no encuentra "Cerrado", buscar por variaciones comunes
             estado_cerrado = EstadoTiquet.query.filter(
-                EstadoTiquet.Nombre.ilike('%cerrado%') | 
-                EstadoTiquet.Nombre.ilike('%closed%') |
-                EstadoTiquet.Nombre.ilike('%finalizado%')
+                EstadoTiquet.Nombre.ilike("%cerrado%")
+                | EstadoTiquet.Nombre.ilike("%closed%")
+                | EstadoTiquet.Nombre.ilike("%finalizado%")
             ).first()
-        
+
         if not estado_cerrado:
-            return jsonify({
-                'status': 'error',
-                'message': 'No se encontró un estado de "Cerrado" en el sistema'
-            }), 400
-        
+            return jsonify(
+                {
+                    "status": "error",
+                    "message": 'No se encontró un estado de "Cerrado" en el sistema',
+                }
+            ), 400
+
         # Verificar si el ticket ya está cerrado
         if ticket.Estado == estado_cerrado.ID_estado and ticket.Fecha_cierre:
-            return jsonify({
-                'status': 'warning',
-                'message': 'El ticket ya está cerrado',
-                'data': {
-                    'Id_Tiquet': ticket.Id_Tiquet,
-                    'Estado': ticket.Estado,
-                    'Fecha_cierre': ticket.Fecha_cierre.strftime('%d-%m-%Y') if ticket.Fecha_cierre else None
+            return jsonify(
+                {
+                    "status": "warning",
+                    "message": "El ticket ya está cerrado",
+                    "data": {
+                        "Id_Tiquet": ticket.Id_Tiquet,
+                        "Estado": ticket.Estado,
+                        "Fecha_cierre": ticket.Fecha_cierre.strftime("%d-%m-%Y")
+                        if ticket.Fecha_cierre
+                        else None,
+                    },
                 }
-            })
-        
+            )
+
         # Cerrar el ticket
         ticket.Estado = estado_cerrado.ID_estado
         ticket.Fecha_cierre = datetime.utcnow().date()
-        
+
         db.session.commit()
         return jsonify(
             {"status": "success", "data": documento_schema.dump(nuevo_doc)}
@@ -498,16 +530,15 @@ def close_ticket(ticket_id):
         print("🔴🔴🔴 FIN ERROR 🔴🔴🔴\n\n")
         return jsonify({"status": "error", "message": str(e)}), 500
 
+
 # Rutas para catálogos
-@bp.route('/categorias', methods=['GET'])
+@bp.route("/categorias", methods=["GET"])
 @jwt_required()
 def get_categorias():
     """Obtener el catálogo completo de categorías de tickets."""
     categorias = CatTiquet.query.all()
-    return jsonify({
-        'status': 'success',
-        'data': cat_tiquets_schema.dump(categorias)
-    })
+    return jsonify({"status": "success", "data": cat_tiquets_schema.dump(categorias)})
+
 
 # --- ESTADÍSTICAS ---
 
@@ -539,7 +570,7 @@ def create_categoria():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
-@bp.route('/categorias/<int:categoria_id>', methods=['PUT'])
+@bp.route("/categorias/<int:categoria_id>", methods=["PUT"])
 @jwt_required()
 def update_categoria(categoria_id):
     """Actualizar los datos de una categoría existente."""
@@ -547,40 +578,38 @@ def update_categoria(categoria_id):
         # Buscar la categoría
         categoria = CatTiquet.query.get(categoria_id)
         if not categoria:
-            return jsonify({
-                'status': 'error',
-                'message': 'Categoría no encontrada'
-            }), 404
-        
+            return jsonify(
+                {"status": "error", "message": "Categoría no encontrada"}
+            ), 404
+
         # Validar datos de entrada
         categoria_data = cat_tiquet_schema.load(request.json, partial=True)
-        
+
         # Actualizar campos
-        if 'Unidad_corresponde' in categoria_data:
-            categoria.Unidad_corresponde = categoria_data['Unidad_corresponde']
-        if 'Nombre' in categoria_data:
-            categoria.Nombre = categoria_data['Nombre']
-        
+        if "Unidad_corresponde" in categoria_data:
+            categoria.Unidad_corresponde = categoria_data["Unidad_corresponde"]
+        if "Nombre" in categoria_data:
+            categoria.Nombre = categoria_data["Nombre"]
+
         db.session.commit()
-        
-        return jsonify({
-            'status': 'success',
-            'message': 'Categoría actualizada exitosamente',
-            'data': cat_tiquet_schema.dump(categoria)
-        })
-        
+
+        return jsonify(
+            {
+                "status": "success",
+                "message": "Categoría actualizada exitosamente",
+                "data": cat_tiquet_schema.dump(categoria),
+            }
+        )
+
     except ValidationError as e:
-        return jsonify({
-            'status': 'error',
-            'message': 'Datos inválidos',
-            'errors': e.messages
-        }), 400
+        return jsonify(
+            {"status": "error", "message": "Datos inválidos", "errors": e.messages}
+        ), 400
     except Exception as e:
         db.session.rollback()
-        return jsonify({
-            'status': 'error',
-            'message': f'Error al actualizar categoría: {str(e)}'
-        }), 500
+        return jsonify(
+            {"status": "error", "message": f"Error al actualizar categoría: {str(e)}"}
+        ), 500
 
 
 @bp.route("/categorias", methods=["GET"])
@@ -591,33 +620,34 @@ def delete_categoria(categoria_id):
         # Buscar la categoría
         categoria = CatTiquet.query.get(categoria_id)
         if not categoria:
-            return jsonify({
-                'status': 'error',
-                'message': 'Categoría no encontrada'
-            }), 404
-        
+            return jsonify(
+                {"status": "error", "message": "Categoría no encontrada"}
+            ), 404
+
         # Verificar si la categoría está siendo usada por algún ticket
-        tickets_usando_categoria = Tiquet.query.filter_by(Categoria=categoria_id).first()
+        tickets_usando_categoria = Tiquet.query.filter_by(
+            Categoria=categoria_id
+        ).first()
         if tickets_usando_categoria:
-            return jsonify({
-                'status': 'error',
-                'message': 'No se puede eliminar la categoría porque está siendo utilizada por uno o más tickets'
-            }), 400
-        
+            return jsonify(
+                {
+                    "status": "error",
+                    "message": "No se puede eliminar la categoría porque está siendo utilizada por uno o más tickets",
+                }
+            ), 400
+
         db.session.delete(categoria)
         db.session.commit()
-        
-        return jsonify({
-            'status': 'success',
-            'message': 'Categoría eliminada exitosamente'
-        })
-        
+
+        return jsonify(
+            {"status": "success", "message": "Categoría eliminada exitosamente"}
+        )
+
     except Exception as e:
         db.session.rollback()
-        return jsonify({
-            'status': 'error',
-            'message': f'Error al eliminar categoría: {str(e)}'
-        }), 500
+        return jsonify(
+            {"status": "error", "message": f"Error al eliminar categoría: {str(e)}"}
+        ), 500
 
 
 @bp.route("/estados", methods=["GET"])
@@ -625,10 +655,7 @@ def delete_categoria(categoria_id):
 def get_estados():
     """Obtener el catálogo de estados posibles para un ticket."""
     estados = EstadoTiquet.query.all()
-    return jsonify({
-        'status': 'success',
-        'data': estados_schema.dump(estados)
-    })
+    return jsonify({"status": "success", "data": estados_schema.dump(estados)})
 
 
 @bp.route("/ubicaciones", methods=["GET"])
@@ -636,10 +663,9 @@ def get_estados():
 def get_criticidades():
     """Obtener el catálogo de niveles de criticidad."""
     criticidades = CatalogoCriticidad.query.all()
-    return jsonify({
-        'status': 'success',
-        'data': criticidades_schema.dump(criticidades)
-    })
+    return jsonify(
+        {"status": "success", "data": criticidades_schema.dump(criticidades)}
+    )
 
 
 @bp.route("/criticidades", methods=["GET"])
@@ -647,10 +673,7 @@ def get_criticidades():
 def get_ubicaciones():
     """Obtener el catálogo de ubicaciones disponibles."""
     ubicaciones = Ubicaciones.query.all()
-    return jsonify({
-        'status': 'success',
-        'data': ubicaciones_schema.dump(ubicaciones)
-    })
+    return jsonify({"status": "success", "data": ubicaciones_schema.dump(ubicaciones)})
 
 
 @bp.route("/documents/<int:doc_id>", methods=["DELETE"])
@@ -658,7 +681,7 @@ def get_ubicaciones():
 def get_dashboard_stats():
     """
     Obtener estadísticas generales para el panel de control (Dashboard).
-    
+
     Calcula totales de tickets, desglose por estado y por criticidad
     para generar gráficas y reportes.
     """
@@ -677,62 +700,72 @@ def get_dashboard_stats():
                 query = query.filter(
                     or_(
                         Tiquet.User_asig == current_user_id,
-                        Tiquet.Tel_ext == str(current_user_id)
+                        Tiquet.Tel_ext == str(current_user_id),
                     )
                 )
 
         total_tickets = query.count()
-        
+
         # Tickets abiertos (reutilizando el query filtrado)
-        tickets_abiertos = query.join(EstadoTiquet).filter(
-            EstadoTiquet.Nombre != 'Cerrado'
-        ).count()
-        
+        tickets_abiertos = (
+            query.join(EstadoTiquet).filter(EstadoTiquet.Nombre != "Cerrado").count()
+        )
+
         tickets_cerrados = total_tickets - tickets_abiertos
-        
+
         # Tickets por estado
         q_estado = db.session.query(
-            EstadoTiquet.Nombre,
-            db.func.count(Tiquet.Id_Tiquet)
+            EstadoTiquet.Nombre, db.func.count(Tiquet.Id_Tiquet)
         ).outerjoin(Tiquet)
 
         # Aplicar filtros a la query de estados
         if current_user:
             if current_user.ID_Rol == 3:
-                q_estado = q_estado.filter(or_(Tiquet.User_asig == current_user_id, Tiquet.Tel_ext == str(current_user_id)))
+                q_estado = q_estado.filter(
+                    or_(
+                        Tiquet.User_asig == current_user_id,
+                        Tiquet.Tel_ext == str(current_user_id),
+                    )
+                )
 
         tickets_por_estado = q_estado.group_by(EstadoTiquet.ID_estado).all()
-        
+
         # Tickets por criticidad
         q_crit = db.session.query(
-            CatalogoCriticidad.Nombre,
-            db.func.count(Tiquet.Id_Tiquet)
+            CatalogoCriticidad.Nombre, db.func.count(Tiquet.Id_Tiquet)
         ).outerjoin(Tiquet)
 
         # Aplicar filtros a la query de criticidad
         if current_user:
             if current_user.ID_Rol == 3:
-                q_crit = q_crit.filter(or_(Tiquet.User_asig == current_user_id, Tiquet.Tel_ext == str(current_user_id)))
+                q_crit = q_crit.filter(
+                    or_(
+                        Tiquet.User_asig == current_user_id,
+                        Tiquet.Tel_ext == str(current_user_id),
+                    )
+                )
 
         tickets_por_criticidad = q_crit.group_by(CatalogoCriticidad.ID_criti).all()
-        
-        return jsonify({
-            'status': 'success',
-            'data': {
-                'total_tickets': total_tickets,
-                'tickets_abiertos': tickets_abiertos,
-                'tickets_cerrados': tickets_cerrados,
-                'tickets_por_estado': [
-                    {'estado': estado, 'cantidad': cantidad}
-                    for estado, cantidad in tickets_por_estado
-                ],
-                'tickets_por_criticidad': [
-                    {'criticidad': criticidad, 'cantidad': cantidad}
-                    for criticidad, cantidad in tickets_por_criticidad
-                ]
+
+        return jsonify(
+            {
+                "status": "success",
+                "data": {
+                    "total_tickets": total_tickets,
+                    "tickets_abiertos": tickets_abiertos,
+                    "tickets_cerrados": tickets_cerrados,
+                    "tickets_por_estado": [
+                        {"estado": estado, "cantidad": cantidad}
+                        for estado, cantidad in tickets_por_estado
+                    ],
+                    "tickets_por_criticidad": [
+                        {"criticidad": criticidad, "cantidad": cantidad}
+                        for criticidad, cantidad in tickets_por_criticidad
+                    ],
+                },
             }
-        })
-        
+        )
+
     except Exception as e:
         db.session.rollback()
         return jsonify({"status": "error", "message": str(e)}), 500
