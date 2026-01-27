@@ -28,24 +28,8 @@ def create_app(config_name="default"):
     cors.init_app(app, resources={r"/api/*": {"origins": "*"}})
     jwt.init_app(app)
     ma.init_app(app)
-
-    with app.app_context():
-        from app.models import (
-            CatalogoCriticidad,
-            CatTiquet,
-            Comentarios,
-            EstadoTiquet,
-            LogTransaccional,
-            NivelSatisfaccion,
-            Permiso,
-            Rol,
-            RolPermiso,
-            Tiquet,
-            Ubicaciones,
-            Usuario,
-        )
-        from app.models.soporteplus_models import Documento
-
+    
+    
     # Register blueprints
     from app.routes.auth import auth_bp
     from app.routes.main import main_bp

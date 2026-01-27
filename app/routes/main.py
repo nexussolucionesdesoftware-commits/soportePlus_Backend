@@ -2,10 +2,9 @@ from flask import Blueprint, jsonify
 
 main_bp = Blueprint('main', __name__)
 
-
 @main_bp.route('/')
 def index():
-    """Root endpoint."""
+    """Endpoint principal de la API"""
     return jsonify({
         'message': 'SoportePlus Backend API',
         'version': '1.0.0',
@@ -15,7 +14,7 @@ def index():
 
 @main_bp.route('/health')
 def health_check():
-    """Health check endpoint."""
+    """Endpoint de estado de salud"""
     return jsonify({
         'status': 'healthy',
         'message': 'Service is running normally'

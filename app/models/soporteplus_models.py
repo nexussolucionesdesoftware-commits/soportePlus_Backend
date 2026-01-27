@@ -233,7 +233,6 @@ class LogTransaccional(db.Model):
     def __repr__(self):
         return f"<LogTransaccional {self.Id_log}>"
 
-
 # Clase para guardar los documentos asociados a un ticket o usuario
 # Clase para guardar los documentos asociados a un ticket
 class Documento(db.Model):
@@ -251,9 +250,16 @@ class Documento(db.Model):
     # Relación física única con la tabla Tiquet
     Id_Tiquet = db.Column(db.Integer, db.ForeignKey("Tiquet.Id_Tiquet"), nullable=True)
     fecha_creacion = db.Column(db.DateTime, default=datetime.utcnow)
-
-    # Relación lógica (Quitamos usuario_id y log_id de aquí)
-    tiquet = db.relationship("Tiquet", backref=db.backref("documentos", lazy=True))
+    usuario_id = db.Column(
+        db.Integer, db.ForeignKey("Usuario.ID_usuario"), nullable=True
+    )
+    usuario = db.relationship("Usuario", backref="documentos")
+    tiquet = db.relationship("Tiquet", backref="documentos")
+    # Relación con la tabla LogTransaccional
+    ## log_id = db.Column(
+    ##  db.Integer, db.ForeignKey("LogTransaccional.Id_log"), nullable=True
+    ## )
+    ##log = db.relationship("LogTransaccional", backref="documentos")
 
     def __repr__(self):
         return f"<Documento {self.nombre_original}>"

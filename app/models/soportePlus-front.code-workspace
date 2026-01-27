@@ -1,0 +1,12 @@
+{
+	"folders": [
+		{
+			"path": "../../../soportePlus-front"
+		},
+		{
+			"name": "soportePlus_Backend",
+			"path": "../.."
+		}
+	],
+	"settings": {}
+}
