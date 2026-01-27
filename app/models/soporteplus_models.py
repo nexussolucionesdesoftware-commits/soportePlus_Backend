@@ -1,8 +1,10 @@
-from app import db
-from datetime import datetime
-from werkzeug.security import generate_password_hash, check_password_hash
+import uuid
+from datetime import datetime, timedelta
+
 from flask_jwt_extended import create_access_token, create_refresh_token
-from datetime import timedelta
+from werkzeug.security import check_password_hash, generate_password_hash
+
+from app import db
 
 
 class CatTiquet(db.Model):
@@ -231,3 +233,35 @@ class LogTransaccional(db.Model):
     def __repr__(self):
         return f"<LogTransaccional {self.Id_log}>"
 
+<<<<<<< HEAD
+=======
+
+# Clase para guardar los documentos asociados a un ticket o usuario
+class Documento(db.Model):
+    __tablename__ = "Documentos"
+
+    id = db.Column(db.Integer, primary_key=True)
+    nombre_original = db.Column(db.String(255), nullable=False)
+    # Nombre único en el disco duro para evitar sobrescribir archivos
+    nombre_almacenado = db.Column(db.String(255), unique=True, nullable=False)
+    ruta_relativa = db.Column(db.String(500), nullable=False)
+    mimetype = db.Column(db.String(100))
+    tamano = db.Column(db.Integer)
+
+    # Relación con la tabla Tiquet
+    Id_Tiquet = db.Column(db.Integer, db.ForeignKey("Tiquet.Id_Tiquet"), nullable=True)
+    fecha_creacion = db.Column(db.DateTime, default=datetime.utcnow)
+    usuario_id = db.Column(
+        db.Integer, db.ForeignKey("Usuario.ID_usuario"), nullable=True
+    )
+    usuario = db.relationship("Usuario", backref="documentos")
+    tiquet = db.relationship("Tiquet", backref="documentos")
+    # Relación con la tabla LogTransaccional
+    log_id = db.Column(
+        db.Integer, db.ForeignKey("LogTransaccional.Id_log"), nullable=True
+    )
+    #  log = db.relationship("LogTransaccional", backref="documentos")
+
+    def __repr__(self):
+        return f"<Documento {self.nombre_original}>"
+>>>>>>> 5adbf93fa2516c692062a51b37da3adfe928f9b6

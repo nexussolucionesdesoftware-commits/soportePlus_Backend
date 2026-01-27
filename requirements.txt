@@ -7,8 +7,13 @@ Flask-CORS==4.0.0
 Flask-JWT-Extended==4.5.3
 
 # Database
+<<<<<<< HEAD
 pg8000==1.30.3
 SQLAlchemy==2.0.36
+=======
+psycopg2-binary>=2.9.9
+SQLAlchemy==2.0.21
+>>>>>>> 5adbf93fa2516c692062a51b37da3adfe928f9b6
 
 # Validation and Serialization
 marshmallow==3.20.1
