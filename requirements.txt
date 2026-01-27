@@ -1,14 +1,14 @@
 # Flask Core
 Flask==2.3.3
 Flask-RESTful==0.3.10
-Flask-SQLAlchemy==3.0.5
+Flask-SQLAlchemy==3.1.1
 Flask-Migrate==4.0.5
 Flask-CORS==4.0.0
 Flask-JWT-Extended==4.5.3
 
 # Database
-psycopg2-binary==2.9.7
-SQLAlchemy==2.0.21
+pg8000==1.30.3
+SQLAlchemy==2.0.36
 
 # Validation and Serialization
 marshmallow==3.20.1
