@@ -233,9 +233,6 @@ class LogTransaccional(db.Model):
     def __repr__(self):
         return f"<LogTransaccional {self.Id_log}>"
 
-<<<<<<< HEAD
-=======
-
 # Clase para guardar los documentos asociados a un ticket o usuario
 # Clase para guardar los documentos asociados a un ticket
 class Documento(db.Model):
