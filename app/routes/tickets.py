@@ -1,19 +1,44 @@
-from flask import Blueprint, request, jsonify
-from flask_jwt_extended import jwt_required, get_jwt_identity
-from sqlalchemy.orm import joinedload
+import os
+import uuid
 from datetime import datetime
+
+from flask import Blueprint, current_app, jsonify, request
+from flask_jwt_extended import jwt_required
+from marshmallow import Schema, ValidationError, fields, pre_load
+from sqlalchemy.orm import joinedload
+from werkzeug.utils import secure_filename
+
 from app import db
 from app.models.soporteplus_models import (
-    Tiquet, CatTiquet, EstadoTiquet, CatalogoCriticidad,
-    Ubicaciones, Usuario, Comentarios
+    CatalogoCriticidad,
+    CatTiquet,
+    Documento,
+    EstadoTiquet,
+    Tiquet,
+    Ubicaciones,
+    Usuario,
 )
-from marshmallow import Schema, fields, pre_load, ValidationError
 
-bp = Blueprint('tickets', __name__)
+bp = Blueprint("tickets", __name__)
+
+# --- SCHEMAS DE MARSHMALLOW ---
+
+
+class DocumentoSchema(Schema):
+    """Schema para serializar documentos adjuntos"""
+
+    id = fields.Int(dump_only=True)
+    nombre_original = fields.Str(dump_only=True)
+    ruta_relativa = fields.Str(dump_only=True)
+    mimetype = fields.Str(dump_only=True)
+    tamano = fields.Int(dump_only=True)
+    fecha_creacion = fields.DateTime(dump_only=True)
+    Id_Tiquet = fields.Int(dump_only=True)  # Este sí existe
 
 
 class TiquetSchema(Schema):
     """Schema para serializar tickets"""
+
     Id_Tiquet = fields.Int(dump_only=True)
     Categoria = fields.Int(allow_none=True)
     Tel_ext = fields.Str(allow_none=True)
@@ -22,531 +47,326 @@ class TiquetSchema(Schema):
     Descripcion = fields.Str(allow_none=True)
     User_asig = fields.Int(allow_none=True)
     Estado = fields.Int(allow_none=True)
-    Fecha_apertura = fields.Raw(allow_none=True)  # Manejado completamente en pre_load
-    fecha_apertura_input = fields.Str(load_only=True, allow_none=True)  # Para recibir dd-mm-yyyy
-    Fecha_cierre = fields.Raw(allow_none=True, dump_only=True)  # Solo para lectura, se establece automáticamente
-    
+    Fecha_apertura = fields.Raw(allow_none=True)
+    fecha_apertura_input = fields.Str(load_only=True, allow_none=True)
+    Fecha_cierre = fields.Raw(allow_none=True, dump_only=True)
+
+    # Relación con Documentos (Aparecerán automáticamente en los GET)
+    documentos = fields.Nested("DocumentoSchema", many=True, dump_only=True)
+
     # Campos relacionados
-    categoria_rel = fields.Nested('CatTiquetSchema', dump_only=True)
-    ubicacion_rel = fields.Nested('UbicacionesSchema', dump_only=True)
-    criticidad_rel = fields.Nested('CatalogoCriticidadSchema', dump_only=True)
-    estado_rel = fields.Nested('EstadoTiquetSchema', dump_only=True)
-    usuario_asignado = fields.Nested('UsuarioSchema', dump_only=True)
-    
+    categoria_rel = fields.Nested("CatTiquetSchema", dump_only=True)
+    ubicacion_rel = fields.Nested("UbicacionesSchema", dump_only=True)
+    criticidad_rel = fields.Nested("CatalogoCriticidadSchema", dump_only=True)
+    estado_rel = fields.Nested("EstadoTiquetSchema", dump_only=True)
+    usuario_asignado = fields.Nested("UsuarioSchema", dump_only=True)
+
     @pre_load
     def convert_date_format(self, data, **kwargs):
-        """Convierte fecha de dd-mm-yyyy a yyyy-mm-dd para la base de datos"""
-        if 'fecha_apertura_input' in data and data['fecha_apertura_input']:
+        if "fecha_apertura_input" in data and data["fecha_apertura_input"]:
             try:
-                # Convertir de dd-mm-yyyy a date object
-                fecha_input = data['fecha_apertura_input']
-                fecha_obj = datetime.strptime(fecha_input, '%d-%m-%Y').date()
-                data['Fecha_apertura'] = fecha_obj
-                # Remover el campo temporal
-                del data['fecha_apertura_input']
+                fecha_input = data["fecha_apertura_input"]
+                fecha_obj = datetime.strptime(fecha_input, "%d-%m-%Y").date()
+                data["Fecha_apertura"] = fecha_obj
+                del data["fecha_apertura_input"]
             except ValueError:
-                raise ValidationError('Fecha debe estar en formato dd-mm-yyyy', 'fecha_apertura_input')
-        elif 'Fecha_apertura' not in data or data.get('Fecha_apertura') is None:
-            # Si no se proporciona fecha, usar fecha actual
-            data['Fecha_apertura'] = datetime.utcnow().date()
+                raise ValidationError(
+                    "Formato dd-mm-yyyy requerido", "fecha_apertura_input"
+                )
+        elif "Fecha_apertura" not in data or data.get("Fecha_apertura") is None:
+            data["Fecha_apertura"] = datetime.utcnow().date()
         return data
 
 
 class CatTiquetSchema(Schema):
-    """Schema para categorías de tickets"""
     Categoria = fields.Int(dump_only=True)
     Unidad_corresponde = fields.Str(allow_none=True)
     Nombre = fields.Str(allow_none=True)
 
 
 class EstadoTiquetSchema(Schema):
-    """Schema para estados de tickets"""
     ID_estado = fields.Int(dump_only=True)
     Nombre = fields.Str(required=True)
     Descripcion = fields.Str(allow_none=True)
 
 
 class CatalogoCriticidadSchema(Schema):
-    """Schema para criticidad"""
     ID_criti = fields.Int(dump_only=True)
     Nombre = fields.Str(allow_none=True)
 
 
 class UbicacionesSchema(Schema):
-    """Schema para ubicaciones"""
     Id_ubicacion = fields.Int(dump_only=True)
     Nombre = fields.Str(required=True)
     Zona = fields.Str(allow_none=True)
 
 
 class UsuarioSchema(Schema):
-    """Schema para usuarios"""
     ID_usuario = fields.Int(dump_only=True)
     Nombre = fields.Str(required=True)
     ID_Rol = fields.Int(allow_none=True)
 
 
-# Instanciar schemas
+# Instancias
 tiquet_schema = TiquetSchema()
 tiquets_schema = TiquetSchema(many=True)
 cat_tiquet_schema = CatTiquetSchema()
 cat_tiquets_schema = CatTiquetSchema(many=True)
-estado_schema = EstadoTiquetSchema()
 estados_schema = EstadoTiquetSchema(many=True)
-criticidad_schema = CatalogoCriticidadSchema()
 criticidades_schema = CatalogoCriticidadSchema(many=True)
-ubicacion_schema = UbicacionesSchema()
 ubicaciones_schema = UbicacionesSchema(many=True)
 
+documento_schema = DocumentoSchema()
+# --- RUTAS DE TICKETS ---
 
-@bp.route('/tickets', methods=['GET'])
+
+@bp.route("/tickets", methods=["GET"])
 @jwt_required()
 def get_tickets():
-    """Obtener todos los tickets con sus relaciones cargadas"""
     try:
-        # Cargar tickets con todas sus relaciones usando joinedload
         tickets = Tiquet.query.options(
             joinedload(Tiquet.categoria_rel),
             joinedload(Tiquet.ubicacion_rel),
             joinedload(Tiquet.criticidad_rel),
             joinedload(Tiquet.usuario_asignado),
-            joinedload(Tiquet.estado_rel)
+            joinedload(Tiquet.estado_rel),
+            joinedload(Tiquet.documentos),
         ).all()
-        
-        return jsonify({
-            'status': 'success',
-            'data': tiquets_schema.dump(tickets),
-            'total': len(tickets)
-        })
+        return jsonify(
+            {
+                "status": "success",
+                "data": tiquets_schema.dump(tickets),
+                "total": len(tickets),
+            }
+        )
     except Exception as e:
-        return jsonify({
-            'status': 'error',
-            'message': str(e)
-        }), 500
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 
-@bp.route('/tickets/<int:ticket_id>', methods=['GET'])
+@bp.route("/tickets/<int:ticket_id>", methods=["GET"])
 @jwt_required()
 def get_ticket(ticket_id):
-    """Obtener un ticket específico con sus relaciones cargadas"""
     try:
-        # Cargar ticket específico con todas sus relaciones
-        ticket = Tiquet.query.options(
-            joinedload(Tiquet.categoria_rel),
-            joinedload(Tiquet.ubicacion_rel),
-            joinedload(Tiquet.criticidad_rel),
-            joinedload(Tiquet.usuario_asignado),
-            joinedload(Tiquet.estado_rel)
-        ).filter_by(Id_Tiquet=ticket_id).first()
-        
-        if not ticket:
-            return jsonify({
-                'status': 'error',
-                'message': 'Ticket not found'
-            }), 404
-            
-        return jsonify({
-            'status': 'success',
-            'data': tiquet_schema.dump(ticket)
-        })
+        ticket = (
+            Tiquet.query.options(
+                joinedload(Tiquet.categoria_rel),
+                joinedload(Tiquet.ubicacion_rel),
+                joinedload(Tiquet.criticidad_rel),
+                joinedload(Tiquet.usuario_asignado),
+                joinedload(Tiquet.estado_rel),
+                joinedload(Tiquet.documentos),
+            )
+            .filter_by(Id_Tiquet=ticket_id)
+            .first_or_404()
+        )
+        return jsonify({"status": "success", "data": tiquet_schema.dump(ticket)})
     except Exception as e:
-        return jsonify({
-            'status': 'error',
-            'message': str(e)
-        }), 500
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 
-@bp.route('/tickets', methods=['POST'])
+@bp.route("/tickets", methods=["POST"])
 @jwt_required()
 def create_ticket():
-    """Crear un nuevo ticket con conversión de fecha"""
     try:
         data = request.get_json()
-        if not data:
-            return jsonify({
-                'status': 'error',
-                'message': 'No se proporcionaron datos'
-            }), 400
-        
-        # Validar y transformar datos usando el schema
-        try:
-            validated_data = tiquet_schema.load(data)
-        except ValidationError as err:
-            return jsonify({
-                'status': 'error',
-                'message': 'Datos inválidos',
-                'errors': err.messages
-            }), 400
-        
-        # Crear ticket con datos validados
+        validated_data = tiquet_schema.load(data)
         ticket = Tiquet(**validated_data)
         db.session.add(ticket)
         db.session.commit()
-        
-        # Cargar ticket con relaciones para la respuesta
-        ticket_with_relations = Tiquet.query.options(
-            joinedload(Tiquet.categoria_rel),
-            joinedload(Tiquet.ubicacion_rel),
-            joinedload(Tiquet.criticidad_rel),
-            joinedload(Tiquet.usuario_asignado),
-            joinedload(Tiquet.estado_rel)
-        ).filter_by(Id_Tiquet=ticket.Id_Tiquet).first()
-        
-        return jsonify({
-            'status': 'success',
-            'message': 'Ticket creado exitosamente',
-            'data': tiquet_schema.dump(ticket_with_relations)
-        }), 201
-        
+        return jsonify(
+            {
+                "status": "success",
+                "message": "Creado",
+                "data": tiquet_schema.dump(ticket),
+            }
+        ), 201
     except Exception as e:
         db.session.rollback()
-        return jsonify({
-            'status': 'error',
-            'message': f'Error interno del servidor: {str(e)}'
-        }), 500
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 
-@bp.route('/tickets/<int:ticket_id>', methods=['PUT'])
+@bp.route("/tickets/<int:ticket_id>", methods=["PUT"])
 @jwt_required()
 def update_ticket(ticket_id):
-    """Actualizar un ticket"""
     try:
+        # 1. Buscar el ticket existente
         ticket = Tiquet.query.get_or_404(ticket_id)
+
+        # 2. Obtener los datos que envía React
         data = request.get_json()
-        
-        # Validar datos
-        errors = tiquet_schema.validate(data, partial=True)
-        if errors:
-            return jsonify({
-                'status': 'error',
-                'message': 'Datos inválidos',
-                'errors': errors
-            }), 400
-        
-        # Actualizar campos
-        for key, value in data.items():
-            if hasattr(ticket, key):
-                setattr(ticket, key, value)
-        
+
+        # 3. Actualizar solo los campos que vengan en la petición
+        if "Descripcion" in data:
+            ticket.Descripcion = data["Descripcion"]
+        if "Categoria" in data:
+            ticket.Categoria = data["Categoria"]
+        if "Ubicacion" in data:
+            ticket.Ubicacion = data["Ubicacion"]
+        if "Criticidad" in data:
+            ticket.Criticidad = data["Criticidad"]
+        if "Estado" in data:
+            ticket.Estado = data["Estado"]
+        if "User_asig" in data:
+            ticket.User_asig = data["User_asig"]
+
+        # Nota: Si manejas fecha de cierre al cambiar estado a "Cerrado", agrégalo aquí
+
+        # 4. Guardar cambios
         db.session.commit()
-        
-        return jsonify({
-            'status': 'success',
-            'message': 'Ticket actualizado exitosamente',
-            'data': tiquet_schema.dump(ticket)
-        })
-        
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({
-            'status': 'error',
-            'message': str(e)
-        }), 500
 
-
-@bp.route('/tickets/<int:ticket_id>', methods=['DELETE'])
-@jwt_required()
-def delete_ticket(ticket_id):
-    """Eliminar un ticket"""
-    try:
-        ticket = Tiquet.query.get_or_404(ticket_id)
-        
-        # Opcional: Eliminar registros relacionados primero si es necesario
-        # (SQLAlchemy debería manejar esto automáticamente si está configurado en cascade)
-        
-        db.session.delete(ticket)
-        db.session.commit()
-        
-        return jsonify({
-            'status': 'success',
-            'message': f'Ticket {ticket_id} eliminado exitosamente'
-        })
-        
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({
-            'status': 'error',
-            'message': f'Error al eliminar ticket: {str(e)}'
-        }), 500
-
-
-@bp.route('/tickets/<int:ticket_id>/close', methods=['PUT'])
-@jwt_required()
-def close_ticket(ticket_id):
-    """Cerrar un ticket - establece fecha de cierre y cambia estado a cerrado"""
-    try:
-        # Buscar el ticket
-        ticket = Tiquet.query.get_or_404(ticket_id)
-        
-        # Buscar el estado "cerrado" (asumiendo que existe un estado con nombre "Cerrado")
-        estado_cerrado = EstadoTiquet.query.filter_by(Nombre='Cerrado').first()
-        if not estado_cerrado:
-            # Si no encuentra "Cerrado", buscar por variaciones comunes
-            estado_cerrado = EstadoTiquet.query.filter(
-                EstadoTiquet.Nombre.ilike('%cerrado%') | 
-                EstadoTiquet.Nombre.ilike('%closed%') |
-                EstadoTiquet.Nombre.ilike('%finalizado%')
-            ).first()
-        
-        if not estado_cerrado:
-            return jsonify({
-                'status': 'error',
-                'message': 'No se encontró un estado de "Cerrado" en el sistema'
-            }), 400
-        
-        # Verificar si el ticket ya está cerrado
-        if ticket.Estado == estado_cerrado.ID_estado and ticket.Fecha_cierre:
-            return jsonify({
-                'status': 'warning',
-                'message': 'El ticket ya está cerrado',
-                'data': {
-                    'Id_Tiquet': ticket.Id_Tiquet,
-                    'Estado': ticket.Estado,
-                    'Fecha_cierre': ticket.Fecha_cierre.strftime('%d-%m-%Y') if ticket.Fecha_cierre else None
-                }
-            })
-        
-        # Cerrar el ticket
-        ticket.Estado = estado_cerrado.ID_estado
-        ticket.Fecha_cierre = datetime.utcnow().date()
-        
-        db.session.commit()
-        
-        # Cargar relaciones para la respuesta
-        ticket_with_relations = Tiquet.query.options(
-            joinedload(Tiquet.categoria_rel),
-            joinedload(Tiquet.ubicacion_rel), 
-            joinedload(Tiquet.criticidad_rel),
-            joinedload(Tiquet.estado_rel),
-            joinedload(Tiquet.usuario_asignado)
-        ).get(ticket_id)
-        
-        return jsonify({
-            'status': 'success',
-            'message': f'Ticket {ticket_id} cerrado exitosamente',
-            'data': {
-                'Id_Tiquet': ticket_with_relations.Id_Tiquet,
-                'Estado': ticket_with_relations.Estado,
-                'Estado_nombre': ticket_with_relations.estado_rel.Nombre if ticket_with_relations.estado_rel else None,
-                'Fecha_apertura': ticket_with_relations.Fecha_apertura.strftime('%d-%m-%Y') if ticket_with_relations.Fecha_apertura else None,
-                'Fecha_cierre': ticket_with_relations.Fecha_cierre.strftime('%d-%m-%Y') if ticket_with_relations.Fecha_cierre else None,
-                'Descripcion': ticket_with_relations.Descripcion
+        return jsonify(
+            {
+                "status": "success",
+                "message": "Ticket actualizado correctamente",
+                "data": tiquet_schema.dump(ticket),
             }
-        })
-        
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({
-            'status': 'error',
-            'message': f'Error al cerrar ticket: {str(e)}'
-        }), 500
-
-
-# Rutas para catálogos
-@bp.route('/categorias', methods=['GET'])
-@jwt_required()
-def get_categorias():
-    """Obtener todas las categorías"""
-    categorias = CatTiquet.query.all()
-    return jsonify({
-        'status': 'success',
-        'data': cat_tiquets_schema.dump(categorias)
-    })
-
-
-@bp.route('/categorias', methods=['POST'])
-@jwt_required()
-def create_categoria():
-    """Crear una nueva categoría"""
-    try:
-        # Validar datos de entrada
-        categoria_data = cat_tiquet_schema.load(request.json)
-        
-        # Crear nueva categoría
-        nueva_categoria = CatTiquet(
-            Unidad_corresponde=categoria_data.get('Unidad_corresponde'),
-            Nombre=categoria_data.get('Nombre')
         )
-        
-        db.session.add(nueva_categoria)
-        db.session.commit()
-        
-        return jsonify({
-            'status': 'success',
-            'message': 'Categoría creada exitosamente',
-            'data': cat_tiquet_schema.dump(nueva_categoria)
-        }), 201
-        
-    except ValidationError as e:
-        return jsonify({
-            'status': 'error',
-            'message': 'Datos inválidos',
-            'errors': e.messages
-        }), 400
+
     except Exception as e:
         db.session.rollback()
-        return jsonify({
-            'status': 'error',
-            'message': f'Error al crear categoría: {str(e)}'
-        }), 500
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 
-@bp.route('/categorias/<int:categoria_id>', methods=['PUT'])
+@bp.route("/tickets/<int:ticket_id>/upload", methods=["POST"])
 @jwt_required()
-def update_categoria(categoria_id):
-    """Actualizar una categoría existente"""
+def upload_file(ticket_id):
+    """Buzón para recibir archivos adjuntos de React"""
     try:
-        # Buscar la categoría
-        categoria = CatTiquet.query.get(categoria_id)
-        if not categoria:
-            return jsonify({
-                'status': 'error',
-                'message': 'Categoría no encontrada'
-            }), 404
-        
-        # Validar datos de entrada
-        categoria_data = cat_tiquet_schema.load(request.json, partial=True)
-        
-        # Actualizar campos
-        if 'Unidad_corresponde' in categoria_data:
-            categoria.Unidad_corresponde = categoria_data['Unidad_corresponde']
-        if 'Nombre' in categoria_data:
-            categoria.Nombre = categoria_data['Nombre']
-        
+        # 1. Buscar el ticket
+        ticket = Tiquet.query.get_or_404(ticket_id)
+
+        # 2. Validar que venga el archivo
+        if "file" not in request.files:
+            return jsonify({"status": "error", "message": "No hay archivo"}), 400
+
+        file = request.files["file"]
+        if file.filename == "":
+            return jsonify({"status": "error", "message": "Sin selección"}), 400
+
+        # 3. Guardar archivo físicamente
+        nombre_original = secure_filename(file.filename)
+        # Generar nombre único
+        nombre_almacenado = f"{uuid.uuid4().hex}{os.path.splitext(nombre_original)[1]}"
+
+        ruta_carpeta = current_app.config["UPLOAD_FOLDER"]
+        if not os.path.exists(ruta_carpeta):
+            os.makedirs(ruta_carpeta)
+
+        ruta_completa = os.path.join(ruta_carpeta, nombre_almacenado)
+        file.save(ruta_completa)
+
+        # 4. Guardar registro en BD
+        nuevo_doc = Documento(
+            nombre_original=nombre_original,
+            nombre_almacenado=nombre_almacenado,
+            ruta_relativa=f"static/uploads/{nombre_almacenado}",
+            mimetype=file.mimetype,
+            tamano=os.path.getsize(ruta_completa),
+            Id_Tiquet=ticket_id,
+        )
+        db.session.add(nuevo_doc)
         db.session.commit()
-        
-        return jsonify({
-            'status': 'success',
-            'message': 'Categoría actualizada exitosamente',
-            'data': cat_tiquet_schema.dump(categoria)
-        })
-        
-    except ValidationError as e:
-        return jsonify({
-            'status': 'error',
-            'message': 'Datos inválidos',
-            'errors': e.messages
-        }), 400
+        return jsonify(
+            {"status": "success", "data": documento_schema.dump(nuevo_doc)}
+        ), 201
+
     except Exception as e:
-        db.session.rollback()
-        return jsonify({
-            'status': 'error',
-            'message': f'Error al actualizar categoría: {str(e)}'
-        }), 500
+        import traceback
+
+        print("\n\n🔴🔴🔴 ERROR EN UPLOAD 🔴🔴🔴")
+        traceback.print_exc()
+        print("🔴🔴🔴 FIN ERROR 🔴🔴🔴\n\n")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 
-@bp.route('/categorias/<int:categoria_id>', methods=['DELETE'])
-@jwt_required()
-def delete_categoria(categoria_id):
-    """Eliminar una categoría"""
-    try:
-        # Buscar la categoría
-        categoria = CatTiquet.query.get(categoria_id)
-        if not categoria:
-            return jsonify({
-                'status': 'error',
-                'message': 'Categoría no encontrada'
-            }), 404
-        
-        # Verificar si la categoría está siendo usada por algún ticket
-        tickets_usando_categoria = Tiquet.query.filter_by(Categoria=categoria_id).first()
-        if tickets_usando_categoria:
-            return jsonify({
-                'status': 'error',
-                'message': 'No se puede eliminar la categoría porque está siendo utilizada por uno o más tickets'
-            }), 400
-        
-        db.session.delete(categoria)
-        db.session.commit()
-        
-        return jsonify({
-            'status': 'success',
-            'message': 'Categoría eliminada exitosamente'
-        })
-        
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({
-            'status': 'error',
-            'message': f'Error al eliminar categoría: {str(e)}'
-        }), 500
+# --- ESTADÍSTICAS ---
 
 
-@bp.route('/estados', methods=['GET'])
-@jwt_required()
-def get_estados():
-    """Obtener todos los estados"""
-    estados = EstadoTiquet.query.all()
-    return jsonify({
-        'status': 'success',
-        'data': estados_schema.dump(estados)
-    })
-
-
-@bp.route('/criticidades', methods=['GET'])
-@jwt_required()
-def get_criticidades():
-    """Obtener todas las criticidades"""
-    criticidades = CatalogoCriticidad.query.all()
-    return jsonify({
-        'status': 'success',
-        'data': criticidades_schema.dump(criticidades)
-    })
-
-
-@bp.route('/ubicaciones', methods=['GET'])
-@jwt_required()
-def get_ubicaciones():
-    """Obtener todas las ubicaciones"""
-    ubicaciones = Ubicaciones.query.all()
-    return jsonify({
-        'status': 'success',
-        'data': ubicaciones_schema.dump(ubicaciones)
-    })
-
-
-@bp.route('/dashboard/stats', methods=['GET'])
+@bp.route("/dashboard/stats", methods=["GET"])
 @jwt_required()
 def get_dashboard_stats():
-    """Obtener estadísticas para el dashboard"""
     try:
-        total_tickets = Tiquet.query.count()
-        tickets_abiertos = Tiquet.query.join(EstadoTiquet).filter(
-            EstadoTiquet.Nombre != 'Cerrado'
-        ).count()
-        tickets_cerrados = total_tickets - tickets_abiertos
-        
-        # Tickets por estado
-        tickets_por_estado = db.session.query(
-            EstadoTiquet.Nombre,
-            db.func.count(Tiquet.Id_Tiquet)
-        ).outerjoin(Tiquet).group_by(EstadoTiquet.ID_estado).all()
-        
-        # Tickets por criticidad
-        tickets_por_criticidad = db.session.query(
-            CatalogoCriticidad.Nombre,
-            db.func.count(Tiquet.Id_Tiquet)
-        ).outerjoin(Tiquet).group_by(CatalogoCriticidad.ID_criti).all()
-        
-        return jsonify({
-            'status': 'success',
-            'data': {
-                'total_tickets': total_tickets,
-                'tickets_abiertos': tickets_abiertos,
-                'tickets_cerrados': tickets_cerrados,
-                'tickets_por_estado': [
-                    {'estado': estado, 'cantidad': cantidad}
-                    for estado, cantidad in tickets_por_estado
-                ],
-                'tickets_por_criticidad': [
-                    {'criticidad': criticidad, 'cantidad': cantidad}
-                    for criticidad, cantidad in tickets_por_criticidad
-                ]
+        total = Tiquet.query.count()
+        por_estado = (
+            db.session.query(EstadoTiquet.Nombre, db.func.count(Tiquet.Id_Tiquet))
+            .outerjoin(Tiquet)
+            .group_by(EstadoTiquet.ID_estado)
+            .all()
+        )
+        return jsonify(
+            {
+                "status": "success",
+                "data": {
+                    "total": total,
+                    "stats_estado": [
+                        {"estado": e, "cantidad": c} for e, c in por_estado
+                    ],
+                },
             }
-        })
-        
+        )
     except Exception as e:
-        return jsonify({
-            'status': 'error',
-            'message': str(e)
-        }), 500
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# --- CATÁLOGOS ---
+
+
+@bp.route("/categorias", methods=["GET"])
+@jwt_required()
+def get_categorias():
+    return jsonify(
+        {"status": "success", "data": cat_tiquets_schema.dump(CatTiquet.query.all())}
+    )
+
+
+@bp.route("/estados", methods=["GET"])
+@jwt_required()
+def get_estados():
+    return jsonify(
+        {"status": "success", "data": estados_schema.dump(EstadoTiquet.query.all())}
+    )
+
+
+@bp.route("/ubicaciones", methods=["GET"])
+@jwt_required()
+def get_ubicaciones():
+    return jsonify(
+        {"status": "success", "data": ubicaciones_schema.dump(Ubicaciones.query.all())}
+    )
+
+
+@bp.route("/criticidades", methods=["GET"])
+@jwt_required()
+def get_criticidades():
+    return jsonify(
+        {
+            "status": "success",
+            "data": criticidades_schema.dump(CatalogoCriticidad.query.all()),
+        }
+    )
+
+
+@bp.route("/documents/<int:doc_id>", methods=["DELETE"])
+@jwt_required()
+def delete_document(doc_id):
+    try:
+        # 1. Buscar el documento
+        doc = Documento.query.get_or_404(doc_id)
+
+        # 2. Construir la ruta física del archivo para borrarlo
+        # Usamos current_app.root_path para llegar a la carpeta 'app'
+        archivo_fisico = os.path.join(current_app.root_path, doc.ruta_relativa)
+
+        # 3. Borrar el archivo del disco (si existe)
+        if os.path.exists(archivo_fisico):
+            os.remove(archivo_fisico)
+
+        # 4. Borrar el registro de la base de datos
+        db.session.delete(doc)
+        db.session.commit()
+
+        return jsonify({"status": "success", "message": "Archivo eliminado"}), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 500
