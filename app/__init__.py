@@ -4,7 +4,6 @@ from flask_jwt_extended import JWTManager
 from flask_marshmallow import Marshmallow
 from flask_migrate import Migrate
 from flask_sqlalchemy import SQLAlchemy
-
 from config import config_by_name
 
 # Initialize extensions
@@ -28,22 +27,20 @@ def create_app(config_name="default"):
     cors.init_app(app, resources={r"/api/*": {"origins": "*"}})
     jwt.init_app(app)
     ma.init_app(app)
-    
-    
+
     # Register blueprints
-    from app.routes.auth import auth_bp
-    from app.routes.main import main_bp
-    from app.routes.tickets import bp as tickets_bp
-    from app.routes.users import users_bp
+    with app.app_context():
+        from app.routes.auth import auth_bp
+        from app.routes.main import main_bp
+        from app.routes.tickets import bp as tickets_bp
+        from app.users.router import users_bp  # ← un solo origen
 
-    app.register_blueprint(main_bp)
-    app.register_blueprint(auth_bp, url_prefix="/api/auth")
-    app.register_blueprint(users_bp, url_prefix="/api/users")
-    app.register_blueprint(tickets_bp, url_prefix="/api/tickets")
+        app.register_blueprint(main_bp)
+        app.register_blueprint(auth_bp, url_prefix="/api/auth")
+        app.register_blueprint(users_bp, url_prefix="/api/users")
+        app.register_blueprint(tickets_bp, url_prefix="/api/tickets")
 
-    # Error handlers
-    from app.utils.error_handlers import register_error_handlers
-
-    register_error_handlers(app)
+        from app.utils.error_handlers import register_error_handlers
+        register_error_handlers(app)
 
     return app

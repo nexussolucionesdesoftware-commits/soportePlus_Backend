@@ -1,3 +1,30 @@
+"""
+Módulo de gestión de tickets para la API Soporte Plus.
+
+Este módulo proporciona los endpoints necesarios para la gestión completa de tickets de soporte,
+incluyendo creación, consulta, actualización, eliminación y gestión de comentarios y documentos.
+
+Endpoints principales:
+- GET /tickets: Obtener todos los tickets (con filtrado por rol)
+- GET /tickets/<id>: Obtener ticket específico
+- POST /tickets: Crear nuevo ticket
+- PUT /tickets/<id>: Actualizar ticket existente
+- DELETE /tickets/<id>: Eliminar ticket
+- GET /tickets/<id>/comentarios: Obtener comentarios de ticket
+- POST /tickets/<id>/comentarios: Agregar comentario a ticket
+
+Endpoints de catálogos:
+- GET /categorias: Obtener categorías de tickets
+- GET /estados: Obtener estados posibles
+- GET /ubicaciones: Obtener ubicaciones disponibles
+- GET /criticidades: Obtener niveles de criticidad
+
+Endpoints de estadísticas:
+- GET /dashboard/stats: Obtener estadísticas del panel de control
+
+Todos los endpoints utilizan autenticación JWT y devuelven respuestas en formato JSON.
+"""
+
 from datetime import datetime
 
 from flask import Blueprint, current_app, jsonify, request
@@ -19,13 +46,25 @@ from app.models.soporteplus_models import (
     Usuario,
 )
 
+# Blueprint de Flask para las rutas de tickets
 bp = Blueprint("tickets", __name__)
 
-# --- SCHEMAS DE MARSHMALLOW ---
+# --- ESQUEMAS DE MARSHMALLOW ---
 
 
 class DocumentoSchema(Schema):
-    """Schema para serializar documentos adjuntos"""
+    """
+    Esquema para serializar documentos adjuntos a tickets.
+    
+    Campos serializados:
+    - id: Identificador único del documento
+    - nombre_original: Nombre original del archivo subido
+    - ruta_relativa: Ruta donde se almacena el archivo
+    - mimetype: Tipo MIME del archivo
+    - tamano: Tamaño del archivo en bytes
+    - fecha_creacion: Fecha de creación del registro
+    - Id_Tiquet: ID del ticket al que pertenece
+    """
 
     id = fields.Int(dump_only=True)
     nombre_original = fields.Str(dump_only=True)
@@ -41,7 +80,28 @@ class TiquetSchema(Schema):
     Esquema de Marshmallow para la serialización y validación de Tickets.
 
     Define los campos que se exponen en la API y cómo se procesan los datos de entrada,
-    incluyendo la conversión de formatos de fecha.
+    incluyendo la conversión de formatos de fecha y relaciones con otras entidades.
+
+    Campos principales:
+    - Id_Tiquet: Identificador único (solo lectura)
+    - Categoria: ID de la categoría del ticket
+    - Tel_ext: Teléfono/extensión (usado para guardar ID del creador)
+    - Ubicacion: ID de la ubicación del ticket
+    - Criticidad: ID del nivel de criticidad
+    - Descripcion: Descripción detallada del problema
+    - User_asig: ID del usuario asignado
+    - Estado: ID del estado actual del ticket
+    - Fecha_apertura: Fecha de apertura (convertida automáticamente)
+    - fecha_apertura_input: Campo de entrada para fecha (formato dd-mm-yyyy)
+    - Fecha_cierre: Fecha de cierre (solo lectura)
+
+    Relaciones:
+    - documentos: Lista de documentos adjuntos
+    - categoria_rel: Datos de la categoría
+    - ubicacion_rel: Datos de la ubicación
+    - criticidad_rel: Datos de la criticidad
+    - estado_rel: Datos del estado
+    - usuario_asignado: Datos del usuario asignado
     """
 
     Id_Tiquet = fields.Int(dump_only=True)
@@ -76,6 +136,12 @@ class TiquetSchema(Schema):
 
         Args:
             data (dict): Datos crudos recibidos en la petición.
+        
+        Returns:
+            dict: Datos procesados con la fecha convertida.
+        
+        Raises:
+            ValidationError: Si el formato de fecha es inválido.
         """
         if "fecha_apertura_input" in data and data["fecha_apertura_input"]:
             try:
@@ -93,36 +159,87 @@ class TiquetSchema(Schema):
 
 
 class CatTiquetSchema(Schema):
+    """
+    Esquema para serializar categorías de tickets.
+    
+    Campos:
+    - Categoria: ID de la categoría
+    - Unidad_corresponde: Unidad o departamento correspondiente
+    - Nombre: Nombre descriptivo de la categoría
+    """
     Categoria = fields.Int(dump_only=True)
     Unidad_corresponde = fields.Str(allow_none=True)
     Nombre = fields.Str(allow_none=True)
 
 
 class EstadoTiquetSchema(Schema):
+    """
+    Esquema para serializar estados de tickets.
+    
+    Campos:
+    - ID_estado: Identificador único del estado
+    - Nombre: Nombre del estado (ej: Abierto, En Progreso, Cerrado)
+    - Descripcion: Descripción detallada del estado
+    """
     ID_estado = fields.Int(dump_only=True)
     Nombre = fields.Str(required=True)
     Descripcion = fields.Str(allow_none=True)
 
 
 class CatalogoCriticidadSchema(Schema):
+    """
+    Esquema para serializar niveles de criticidad.
+    
+    Campos:
+    - ID_criti: Identificador único del nivel de criticidad
+    - Nombre: Nombre descriptivo (ej: Baja, Media, Alta, Crítica)
+    """
     ID_criti = fields.Int(dump_only=True)
     Nombre = fields.Str(allow_none=True)
 
 
 class UbicacionesSchema(Schema):
+    """
+    Esquema para serializar ubicaciones.
+    
+    Campos:
+    - Id_ubicacion: Identificador único de la ubicación
+    - Nombre: Nombre de la ubicación (requerido)
+    - Zona: Zona o área geográfica (opcional)
+    """
     Id_ubicacion = fields.Int(dump_only=True)
     Nombre = fields.Str(required=True)
     Zona = fields.Str(allow_none=True)
 
 
 class UsuarioSchema(Schema):
+    """
+    Esquema simplificado para serializar datos básicos de usuarios.
+    
+    Campos:
+    - ID_usuario: Identificador único del usuario
+    - Nombre: Nombre completo del usuario
+    - ID_Rol: ID del rol del usuario
+    """
     ID_usuario = fields.Int(dump_only=True)
     Nombre = fields.Str(required=True)
     ID_Rol = fields.Int(allow_none=True)
 
 
 class ComentarioSchema(Schema):
-    """Schema para comentarios de tickets"""
+    """
+    Esquema para serializar comentarios de tickets.
+    
+    Campos:
+    - ID_comentario: Identificador único del comentario
+    - mensaje: Contenido del comentario
+    - Tipo: Tipo de comentario ('Usuario' o 'tecnico')
+    - Satisfaccion: Nivel de satisfacción (opcional)
+    - usuario: ID del usuario que creó el comentario
+    - Id_Tiquet: ID del ticket asociado
+    - Fecha: Fecha de creación del comentario
+    - usuario_rel: Datos del usuario (relación anidada)
+    """
 
     ID_comentario = fields.Int(dump_only=True)
     mensaje = fields.Str(allow_none=True)
@@ -136,7 +253,7 @@ class ComentarioSchema(Schema):
     usuario_rel = fields.Nested("UsuarioSchema", dump_only=True)
 
 
-# Instanciar schemas
+# Instanciar esquemas para uso en los endpoints
 tiquet_schema = TiquetSchema()
 tiquets_schema = TiquetSchema(many=True)
 cat_tiquet_schema = CatTiquetSchema()
@@ -148,6 +265,12 @@ ubicaciones_schema = UbicacionesSchema(many=True)
 comentario_schema = ComentarioSchema()
 comentarios_schema = ComentarioSchema(many=True)
 
+# ===============================================================================
+# FIN DE LA LÓGICA DE MARSHMALLOW - AQUÍ TERMINAN LOS ESQUEMAS
+# ===============================================================================
+# A PARTIR DE AQUÍ COMIENZAN LOS ENDPOINTS DE LA API
+# ===============================================================================
+
 
 @bp.route("/tickets", methods=["GET"])
 @jwt_required()
@@ -155,13 +278,23 @@ def get_tickets():
     """
     Obtener todos los tickets registrados en el sistema.
 
+    Endpoint: GET /tickets
+    
     Utiliza 'joinedload' para realizar una carga ansiosa (eager loading) de las relaciones
     (categoría, ubicación, criticidad, usuario, estado) y evitar el problema de N+1 consultas.
 
+    Filtrado por rol:
+    - Admin (Rol 1) y Técnicos (Rol 2): Ven todos los tickets
+    - Usuarios (Rol 3): Ven solo tickets asignados a ellos o creados por ellos
+
     Returns:
-        JSON: Lista de tickets serializados y el total de registros.
+        200: JSON con lista de tickets serializados y total de registros
+        500: Error interno del servidor
     """
     try:
+        # =======================================================================
+        # LÓGICA DE NEGOCIO (SERVICE LAYER) - MOVER A services.py
+        # =======================================================================
         current_user_id = int(get_jwt_identity())
         current_user = Usuario.query.get(current_user_id)
 
@@ -189,6 +322,9 @@ def get_tickets():
 
         tickets = query.all()
 
+        # =======================================================================
+        # CAPA DE PRESENTACIÓN (CONTROLLER) - QUEDARÍA EN routes.py
+        # =======================================================================
         return jsonify(
             {
                 "status": "success",
@@ -206,11 +342,15 @@ def get_ticket(ticket_id):
     """
     Obtener los detalles de un ticket específico por su ID.
 
+    Endpoint: GET /tickets/<ticket_id>
+
     Args:
         ticket_id (int): ID del ticket a consultar.
 
     Returns:
-        JSON: Datos del ticket o error 404 si no existe.
+        200: JSON con datos completos del ticket incluyendo relaciones y documentos
+        404: Ticket no encontrado
+        500: Error interno del servidor
     """
     try:
         ticket = (
@@ -230,15 +370,33 @@ def get_ticket(ticket_id):
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+# ===============================================================================
+# SECCIÓN: ENDPOINTS DE COMENTARIOS DE TICKETS
+# ===============================================================================
+# Estos endpoints manejan la gestión de comentarios asociados a tickets
+
+
 @bp.route("/tickets/<int:ticket_id>/comentarios", methods=["GET"])
 @jwt_required()
 def get_ticket_comentarios(ticket_id):
-    """Obtener comentarios de un ticket"""
+    """
+    Obtener todos los comentarios de un ticket específico.
+    
+    Endpoint: GET /tickets/<ticket_id>/comentarios
+    
+    Args:
+        ticket_id (int): ID del ticket a consultar.
+    
+    Returns:
+        200: JSON con lista de comentarios ordenados por fecha
+        404: Ticket no encontrado
+        500: Error interno del servidor
+    """
     try:
         # Verificar que el ticket existe
         ticket = Tiquet.query.filter_by(Id_Tiquet=ticket_id).first()
         if not ticket:
-            return jsonify({"status": "error", "message": "Ticket not found"}), 404
+            return jsonify({"status": "error", "message": "Ticket no encontrado"}), 404
 
         comentarios = (
             Comentarios.query.options(joinedload(Comentarios.usuario_rel))
@@ -261,7 +419,26 @@ def get_ticket_comentarios(ticket_id):
 @bp.route("/tickets/<int:ticket_id>/comentarios", methods=["POST"])
 @jwt_required()
 def add_ticket_comentario(ticket_id):
-    """Agregar comentario (seguimiento) a un ticket"""
+    """
+    Agregar un nuevo comentario (seguimiento) a un ticket existente.
+    
+    Endpoint: POST /tickets/<ticket_id>/comentarios
+    
+    Args:
+        ticket_id (int): ID del ticket al que se agregará el comentario.
+    
+    Request Body (JSON):
+    {
+        "mensaje": "Contenido del comentario",
+        "comentario": "Contenido del comentario" (alternativo)
+    }
+    
+    Returns:
+        201: Comentario creado exitosamente
+        400: Mensaje requerido o ticket no encontrado
+        404: Ticket no encontrado
+        500: Error interno del servidor
+    """
     try:
         data = request.get_json() or {}
         mensaje = (data.get("mensaje") or data.get("comentario") or "").strip()
@@ -273,11 +450,12 @@ def add_ticket_comentario(ticket_id):
 
         ticket = Tiquet.query.filter_by(Id_Tiquet=ticket_id).first()
         if not ticket:
-            return jsonify({"status": "error", "message": "Ticket not found"}), 404
+            return jsonify({"status": "error", "message": "Ticket no encontrado"}), 404
 
         user_id = int(get_jwt_identity())
         user = Usuario.query.get(user_id)
 
+        # Determinar tipo de comentario según rol del usuario
         # Enum en BD: ('Usuario', 'tecnico')
         tipo = (
             "tecnico"
@@ -296,6 +474,7 @@ def add_ticket_comentario(ticket_id):
         db.session.add(comentario)
         db.session.commit()
 
+        # Obtener comentario con relaciones para respuesta
         comentario_db = Comentarios.query.options(
             joinedload(Comentarios.usuario_rel)
         ).get(comentario.ID_comentario)
@@ -313,16 +492,38 @@ def add_ticket_comentario(ticket_id):
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+# ===============================================================================
+# SECCIÓN: ENDPOINTS CRUD PRINCIPALES DE TICKETS
+# ===============================================================================
+# Estos endpoints manejan las operaciones básicas de tickets (GET, POST, PUT, DELETE)
+
+
 @bp.route("/tickets", methods=["POST"])
 @jwt_required()
 def create_ticket():
     """
     Crear un nuevo ticket en el sistema.
 
-    Valida los datos de entrada utilizando TiquetSchema.
+    Endpoint: POST /tickets
+
+    Valida los datos de entrada utilizando TiquetSchema y asigna automáticamente
+    el usuario actual como creador del ticket.
+
+    Request Body (JSON):
+    {
+        "Categoria": int,
+        "Tel_ext": string (opcional),
+        "Ubicacion": int,
+        "Criticidad": int,
+        "Descripcion": string,
+        "User_asig": int (opcional, se asigna automáticamente si no se especifica),
+        "fecha_apertura_input": "dd-mm-yyyy" (opcional, usa fecha actual si no se especifica)
+    }
 
     Returns:
-        JSON: El ticket creado con sus datos y relaciones, o lista de errores de validación.
+        201: Ticket creado exitosamente con datos completos
+        400: Datos inválidos o no proporcionados
+        500: Error interno del servidor
     """
     try:
         data = request.get_json()
@@ -347,6 +548,9 @@ def create_ticket():
         try:
             validated_data = tiquet_schema.load(data)
         except ValidationError as err:
+            # =======================================================================
+            # CAPA DE PRESENTACIÓN (CONTROLLER) - QUEDARÍA EN routes.py
+            # =======================================================================
             return jsonify(
                 {
                     "status": "error",
@@ -355,10 +559,17 @@ def create_ticket():
                 }
             ), 400
 
+        # =======================================================================
+        # LÓGICA DE NEGOCIO (SERVICE LAYER) - MOVER A services.py
+        # =======================================================================
         # Crear ticket con datos validados
         ticket = Tiquet(**validated_data)
         db.session.add(ticket)
         db.session.commit()
+        
+        # =======================================================================
+        # CAPA DE PRESENTACIÓN (CONTROLLER) - QUEDARÍA EN routes.py
+        # =======================================================================
         return jsonify(
             {
                 "status": "success",
@@ -377,20 +588,35 @@ def update_ticket(ticket_id):
     """
     Actualizar la información de un ticket existente.
 
+    Endpoint: PUT /tickets/<ticket_id>
+
     Args:
         ticket_id (int): ID del ticket a actualizar.
 
+    Request Body (JSON):
+    {
+        "Categoria": int (opcional),
+        "Ubicacion": int (opcional),
+        "Criticidad": int (opcional),
+        "Descripcion": string (opcional),
+        "User_asig": int (opcional),
+        "Estado": int (opcional)
+    }
+
     Returns:
-        JSON: Datos del ticket actualizado.
+        200: Ticket actualizado exitosamente
+        400: Datos inválidos
+        404: Ticket no encontrado
+        500: Error interno del servidor
     """
     try:
         # 1. Buscar el ticket existente
         ticket = Tiquet.query.get_or_404(ticket_id)
 
-        # 2. Obtener los datos que envía React
+        # 2. Obtener los datos que envía el cliente
         data = request.get_json()
 
-        # Validar datos
+        # Validar datos (parcialmente, permite actualizar solo algunos campos)
         errors = tiquet_schema.validate(data, partial=True)
         if errors:
             return jsonify(
@@ -401,16 +627,10 @@ def update_ticket(ticket_id):
         current_user_id = int(get_jwt_identity())
         current_user = Usuario.query.get(current_user_id)
 
-        # Validar que el usuario sea dueño del ticket o admin (si es Rol 3)
-        # COMENTADO: Permitir que el usuario edite el ticket (para agregar comentarios)
-        # aunque ya esté asignado a un técnico.
-        # if current_user and current_user.ID_Rol == 3 and ticket.User_asig != current_user_id:
-        #     return jsonify({
-        #         'status': 'error',
-        #         'message': 'No tienes permiso para editar este ticket'
-        #     }), 403
+        # Nota: Se permite que cualquier usuario autenticado edite tickets
+        # para facilitar el seguimiento y actualización de información
 
-        # Actualizar campos
+        # Actualizar campos dinámicamente
         for key, value in data.items():
             if hasattr(ticket, key):
                 setattr(ticket, key, value)
@@ -437,16 +657,21 @@ def delete_ticket(ticket_id):
     """
     Eliminar un ticket del sistema.
 
+    Endpoint: DELETE /tickets/<ticket_id>
+
     Args:
         ticket_id (int): ID del ticket a eliminar.
 
     Returns:
-        JSON: Mensaje de confirmación.
+        200: Ticket eliminado exitosamente
+        404: Ticket no encontrado
+        500: Error interno del servidor
     """
     try:
         ticket = Tiquet.query.get_or_404(ticket_id)
 
         # Eliminar registros relacionados primero si es necesario
+        # SQLAlchemy manejará las cascadas según las configuraciones del modelo
 
         db.session.delete(ticket)
         db.session.commit()
@@ -469,11 +694,19 @@ def close_ticket(ticket_id):
     """
     Cerrar un ticket formalmente.
 
+    Endpoint: POST /tickets/<int:ticket_id>/upload
+
     Esta acción busca el estado 'Cerrado' en la base de datos, actualiza el estado del ticket
     y establece la fecha de cierre actual automáticamente.
 
     Args:
         ticket_id (int): ID del ticket a cerrar.
+
+    Returns:
+        200: Ticket cerrado exitosamente
+        400: No se encontró estado "Cerrado" o el ticket ya está cerrado
+        404: Ticket no encontrado
+        500: Error interno del servidor
     """
     try:
         # 1. Buscar el ticket
@@ -519,171 +752,48 @@ def close_ticket(ticket_id):
 
         db.session.commit()
         return jsonify(
-            {"status": "success", "data": documento_schema.dump(nuevo_doc)}
-        ), 201
+            {"status": "success", "data": tiquet_schema.dump(ticket)}
+        )
 
     except Exception as e:
-        import traceback
-
-        print("\n\n🔴🔴🔴 ERROR EN UPLOAD 🔴🔴🔴")
-        traceback.print_exc()
-        print("🔴🔴🔴 FIN ERROR 🔴🔴🔴\n\n")
+        db.session.rollback()
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
-# Rutas para catálogos
+# --- ENDPOINTS DE CATÁLOGOS ---
+
 @bp.route("/categorias", methods=["GET"])
 @jwt_required()
 def get_categorias():
-    """Obtener el catálogo completo de categorías de tickets."""
+    """
+    Obtener el catálogo completo de categorías de tickets.
+    
+    Endpoint: GET /categorias
+    
+    Returns:
+        200: JSON con lista de todas las categorías disponibles
+        500: Error interno del servidor
+    """
     categorias = CatTiquet.query.all()
     return jsonify({"status": "success", "data": cat_tiquets_schema.dump(categorias)})
 
 
-# --- ESTADÍSTICAS ---
-
+# --- ENDPOINTS DE ESTADÍSTICAS ---
 
 @bp.route("/dashboard/stats", methods=["GET"])
-@jwt_required()
-def create_categoria():
-    """Crear una nueva categoría en el catálogo."""
-    try:
-        total = Tiquet.query.count()
-        por_estado = (
-            db.session.query(EstadoTiquet.Nombre, db.func.count(Tiquet.Id_Tiquet))
-            .outerjoin(Tiquet)
-            .group_by(EstadoTiquet.ID_estado)
-            .all()
-        )
-        return jsonify(
-            {
-                "status": "success",
-                "data": {
-                    "total": total,
-                    "stats_estado": [
-                        {"estado": e, "cantidad": c} for e, c in por_estado
-                    ],
-                },
-            }
-        )
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
-
-
-@bp.route("/categorias/<int:categoria_id>", methods=["PUT"])
-@jwt_required()
-def update_categoria(categoria_id):
-    """Actualizar los datos de una categoría existente."""
-    try:
-        # Buscar la categoría
-        categoria = CatTiquet.query.get(categoria_id)
-        if not categoria:
-            return jsonify(
-                {"status": "error", "message": "Categoría no encontrada"}
-            ), 404
-
-        # Validar datos de entrada
-        categoria_data = cat_tiquet_schema.load(request.json, partial=True)
-
-        # Actualizar campos
-        if "Unidad_corresponde" in categoria_data:
-            categoria.Unidad_corresponde = categoria_data["Unidad_corresponde"]
-        if "Nombre" in categoria_data:
-            categoria.Nombre = categoria_data["Nombre"]
-
-        db.session.commit()
-
-        return jsonify(
-            {
-                "status": "success",
-                "message": "Categoría actualizada exitosamente",
-                "data": cat_tiquet_schema.dump(categoria),
-            }
-        )
-
-    except ValidationError as e:
-        return jsonify(
-            {"status": "error", "message": "Datos inválidos", "errors": e.messages}
-        ), 400
-    except Exception as e:
-        db.session.rollback()
-        return jsonify(
-            {"status": "error", "message": f"Error al actualizar categoría: {str(e)}"}
-        ), 500
-
-
-@bp.route("/categorias", methods=["GET"])
-@jwt_required()
-def delete_categoria(categoria_id):
-    """Eliminar una categoría (si no está en uso)."""
-    try:
-        # Buscar la categoría
-        categoria = CatTiquet.query.get(categoria_id)
-        if not categoria:
-            return jsonify(
-                {"status": "error", "message": "Categoría no encontrada"}
-            ), 404
-
-        # Verificar si la categoría está siendo usada por algún ticket
-        tickets_usando_categoria = Tiquet.query.filter_by(
-            Categoria=categoria_id
-        ).first()
-        if tickets_usando_categoria:
-            return jsonify(
-                {
-                    "status": "error",
-                    "message": "No se puede eliminar la categoría porque está siendo utilizada por uno o más tickets",
-                }
-            ), 400
-
-        db.session.delete(categoria)
-        db.session.commit()
-
-        return jsonify(
-            {"status": "success", "message": "Categoría eliminada exitosamente"}
-        )
-
-    except Exception as e:
-        db.session.rollback()
-        return jsonify(
-            {"status": "error", "message": f"Error al eliminar categoría: {str(e)}"}
-        ), 500
-
-
-@bp.route("/estados", methods=["GET"])
-@jwt_required()
-def get_estados():
-    """Obtener el catálogo de estados posibles para un ticket."""
-    estados = EstadoTiquet.query.all()
-    return jsonify({"status": "success", "data": estados_schema.dump(estados)})
-
-
-@bp.route("/ubicaciones", methods=["GET"])
-@jwt_required()
-def get_criticidades():
-    """Obtener el catálogo de niveles de criticidad."""
-    criticidades = CatalogoCriticidad.query.all()
-    return jsonify(
-        {"status": "success", "data": criticidades_schema.dump(criticidades)}
-    )
-
-
-@bp.route("/criticidades", methods=["GET"])
-@jwt_required()
-def get_ubicaciones():
-    """Obtener el catálogo de ubicaciones disponibles."""
-    ubicaciones = Ubicaciones.query.all()
-    return jsonify({"status": "success", "data": ubicaciones_schema.dump(ubicaciones)})
-
-
-@bp.route("/documents/<int:doc_id>", methods=["DELETE"])
 @jwt_required()
 def get_dashboard_stats():
     """
     Obtener estadísticas generales para el panel de control (Dashboard).
 
+    Endpoint: GET /dashboard/stats
+
     Calcula totales de tickets, desglose por estado y por criticidad
-    para generar gráficas y reportes.
+    para generar gráficas y reportes. Aplica filtros de seguridad según el rol del usuario.
+
+    Returns:
+        200: JSON con estadísticas completas del dashboard
+        500: Error interno del servidor
     """
     try:
         current_user_id = int(get_jwt_identity())
@@ -769,3 +879,167 @@ def get_dashboard_stats():
     except Exception as e:
         db.session.rollback()
         return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@bp.route("/categorias/<int:categoria_id>", methods=["PUT"])
+@jwt_required()
+def update_categoria(categoria_id):
+    """
+    Actualizar los datos de una categoría existente.
+
+    Endpoint: PUT /categorias/<categoria_id>
+
+    Args:
+        categoria_id (int): ID de la categoría a actualizar.
+
+    Request Body (JSON):
+    {
+        "Unidad_corresponde": string (opcional),
+        "Nombre": string (opcional)
+    }
+
+    Returns:
+        200: Categoría actualizada exitosamente
+        400: Datos inválidos
+        404: Categoría no encontrada
+        500: Error interno del servidor
+    """
+    try:
+        # Buscar la categoría
+        categoria = CatTiquet.query.get(categoria_id)
+        if not categoria:
+            return jsonify(
+                {"status": "error", "message": "Categoría no encontrada"}
+            ), 404
+
+        # Validar datos de entrada
+        categoria_data = cat_tiquet_schema.load(request.json, partial=True)
+
+        # Actualizar campos
+        if "Unidad_corresponde" in categoria_data:
+            categoria.Unidad_corresponde = categoria_data["Unidad_corresponde"]
+        if "Nombre" in categoria_data:
+            categoria.Nombre = categoria_data["Nombre"]
+
+        db.session.commit()
+
+        return jsonify(
+            {
+                "status": "success",
+                "message": "Categoría actualizada exitosamente",
+                "data": cat_tiquet_schema.dump(categoria),
+            }
+        )
+
+    except ValidationError as e:
+        return jsonify(
+            {"status": "error", "message": "Datos inválidos", "errors": e.messages}
+        ), 400
+    except Exception as e:
+        db.session.rollback()
+        return jsonify(
+            {"status": "error", "message": f"Error al actualizar categoría: {str(e)}"}
+        ), 500
+
+
+@bp.route("/categorias/<int:categoria_id>", methods=["DELETE"])
+@jwt_required()
+def delete_categoria(categoria_id):
+    """
+    Eliminar una categoría (si no está en uso).
+
+    Endpoint: DELETE /categorias/<categoria_id>
+
+    Args:
+        categoria_id (int): ID de la categoría a eliminar.
+
+    Returns:
+        200: Categoría eliminada exitosamente
+        400: La categoría está siendo utilizada por tickets
+        404: Categoría no encontrada
+        500: Error interno del servidor
+    """
+    try:
+        # Buscar la categoría
+        categoria = CatTiquet.query.get(categoria_id)
+        if not categoria:
+            return jsonify(
+                {"status": "error", "message": "Categoría no encontrada"}
+            ), 404
+
+        # Verificar si la categoría está siendo usada por algún ticket
+        tickets_usando_categoria = Tiquet.query.filter_by(
+            Categoria=categoria_id
+        ).first()
+        if tickets_usando_categoria:
+            return jsonify(
+                {
+                    "status": "error",
+                    "message": "No se puede eliminar la categoría porque está siendo utilizada por uno o más tickets",
+                }
+            ), 400
+
+        db.session.delete(categoria)
+        db.session.commit()
+
+        return jsonify(
+            {"status": "success", "message": "Categoría eliminada exitosamente"}
+        )
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify(
+            {"status": "error", "message": f"Error al eliminar categoría: {str(e)}"}
+        ), 500
+
+
+@bp.route("/estados", methods=["GET"])
+@jwt_required()
+def get_estados():
+    """
+    Obtener el catálogo de estados posibles para un ticket.
+    
+    Endpoint: GET /estados
+    
+    Returns:
+        200: JSON con lista de todos los estados disponibles
+        500: Error interno del servidor
+    """
+    estados = EstadoTiquet.query.all()
+    return jsonify({"status": "success", "data": estados_schema.dump(estados)})
+
+
+@bp.route("/ubicaciones", methods=["GET"])
+@jwt_required()
+def get_ubicaciones():
+    """
+    Obtener el catálogo de ubicaciones disponibles.
+    
+    Endpoint: GET /ubicaciones
+    
+    Returns:
+        200: JSON con lista de todas las ubicaciones disponibles
+        500: Error interno del servidor
+    """
+    ubicaciones = Ubicaciones.query.all()
+    return jsonify({"status": "success", "data": ubicaciones_schema.dump(ubicaciones)})
+
+
+@bp.route("/criticidades", methods=["GET"])
+@jwt_required()
+def get_criticidades():
+    """
+    Obtener el catálogo de niveles de criticidad.
+    
+    Endpoint: GET /criticidades
+    
+    Returns:
+        200: JSON con lista de todos los niveles de criticidad
+        500: Error interno del servidor
+    """
+    criticidades = CatalogoCriticidad.query.all()
+    return jsonify(
+        {"status": "success", "data": criticidades_schema.dump(criticidades)}
+    )
+
+
