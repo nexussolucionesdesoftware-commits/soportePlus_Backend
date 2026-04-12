@@ -34,10 +34,12 @@ def create_app(config_name="default"):
         from app.routes.main import main_bp
         from app.routes.tickets import bp as tickets_bp
         from app.users.router import users_bp  # ← un solo origen
+        from app.rolls import rolls_bp
 
         app.register_blueprint(main_bp)
         app.register_blueprint(auth_bp, url_prefix="/api/auth")
         app.register_blueprint(users_bp, url_prefix="/api/users")
+        app.register_blueprint(rolls_bp, url_prefix="/api/rolls")
         app.register_blueprint(tickets_bp, url_prefix="/api/tickets")
 
         from app.utils.error_handlers import register_error_handlers
