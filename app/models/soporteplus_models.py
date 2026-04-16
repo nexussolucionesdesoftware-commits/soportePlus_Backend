@@ -119,7 +119,8 @@ class Usuario(db.Model):
     email = db.Column(db.String(255), nullable=False)
     ID_Rol = db.Column(db.Integer, db.ForeignKey("Rol.ID_Rol"), nullable=True)
     password = db.Column(db.String(255), nullable=False)
-
+    # Campo para marcar si el usuario está activo o inactivo
+    activo = db.Column(db.Boolean, default=True, nullable=False)
     def set_password(self, password):
         """Establecer contraseña hasheada"""
         self.password = generate_password_hash(password)
@@ -246,6 +247,7 @@ class Documento(db.Model):
     ruta_relativa = db.Column(db.String(500), nullable=False)
     mimetype = db.Column(db.String(100))
     tamano = db.Column(db.Integer)
+    
 
     # Relación física única con la tabla Tiquet
     Id_Tiquet = db.Column(db.Integer, db.ForeignKey("Tiquet.Id_Tiquet"), nullable=True)

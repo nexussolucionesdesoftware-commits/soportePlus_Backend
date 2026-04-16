@@ -1,5 +1,5 @@
 from app.models.soporteplus_models import Usuario
-
+from app import db
 
 class Validators:
 
@@ -7,7 +7,7 @@ class Validators:
     @staticmethod
     def validate_user_role_change(user_id, data):
         # buscar el usuario
-        current_user_role_valid = Usuario.query.get(user_id)
+        current_user_role_valid = db.session.get(Usuario, user_id)
         # validar que el usuario exista
         if not current_user_role_valid:
             return None

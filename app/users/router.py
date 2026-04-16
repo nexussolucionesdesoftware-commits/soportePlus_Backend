@@ -67,10 +67,13 @@ def get_user(user_id):
         if not UserService.is_admin(current_user_id):
             #retornar un error si el usuario no es administrador
             return jsonify({"error": "No autorizado"}), 403
-        #obtener el usuario por id
-    user_404 = db.get_or_404(user_id)
+    #obtener el usuario por id
+    user = UserService.get_user_by_id(user_id)
+    #validar que el usuario exista
+    if not user:
+        return jsonify({"error": "Usuario no encontrado"}), 404
     #retornar los datos del usuario
-    return jsonify({"user": user_404})
+    return jsonify({"user": user})
 
 #actualizar un usuario
 @users_bp.route("/<int:user_id>", methods=["PUT"])
@@ -147,7 +150,7 @@ def delete_user(user_id):
     if not UserService.is_admin(current_user_id):
         return jsonify({"error": "Se requiere acceso de administrador"}), 403
     if int(current_user_id) == user_id:
-        return jsonify({"error": "No puedes eliminar tu propia cuenta"}), 400
+        return jsonify({"error": "No puedes desactivar tu propia cuenta"}), 400
 
     # Reglas de tickets / persistencia viven en el servicio
     result = UserService.delete_user(user_id)
@@ -156,6 +159,6 @@ def delete_user(user_id):
     if "error" in result:
         err = result["error"]
         # Mismo prefijo que arma ``UserService.delete_user`` en excepciones de BD
-        status = 500 if err.startswith("Error al eliminar usuario") else 400
+        status = 500 if err.startswith("Error al desactivar usuario") else 400
         return jsonify(result), status
     return jsonify(result), 200

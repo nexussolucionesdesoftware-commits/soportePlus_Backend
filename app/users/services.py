@@ -36,12 +36,12 @@ class UserService:
         usuarios_todos = db.session.execute(select(Usuario)).scalars().all()
         # retornar una lista de diccionarios con los datos de los usuarios
         return[{
-            "id": usuarios_todos.ID_usuario,
-            "email": usuarios_todos.email,
-            "nombre": usuarios_todos.Nombre,
-            "rol_id": usuarios_todos.ID_Rol,
-            "is_admin": usuarios_todos.is_admin,
-        } for usuario in usuarios_todos]
+            "id": usuarios.ID_usuario,
+            "email": usuarios.email,
+            "nombre": usuarios.Nombre,
+            "rol_id": usuarios.ID_Rol,
+            "is_admin": usuarios.is_admin,
+        } for usuarios in usuarios_todos]
         
     
     # obtener un usuario por id
@@ -87,7 +87,7 @@ class UserService:
             Dict con el usuario actualizado o ``None`` ante conflicto / no encontrado.
         """
         #buscar el usuario
-        current_user = db.session.get(user_id)
+        current_user = db.session.get(Usuario, user_id)
 
         #validar que el usuario exista
         if not current_user:
@@ -152,9 +152,10 @@ class UserService:
             si falla el commit o la operación en BD.
         """
         user_to_delete = db.session.get(Usuario, user_id)
-
+        #validar que el usuario exista
         if not user_to_delete:
             return None
+        #validar que el usuario no tenga tickets asignados
         if user_to_delete.tiquets_asignados:
             # Estado 3 = cerrado; el resto se considera ticket activo para el borrado
             active_tickets = [
@@ -173,10 +174,10 @@ class UserService:
                 "nombre": user_to_delete.Nombre,
                 "email": user_to_delete.email,
             }
-            db.session.delete(user_to_delete)
+            user_to_delete.activo = False
             db.session.commit()
             return {
-                "message": "Usuario eliminado exitosamente",
+                "message": "Usuario desactivado exitosamente",
                 "delete_user": deleted_user_info,
             }
         except Exception as e:
